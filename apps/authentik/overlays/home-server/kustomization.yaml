@@ -5,5 +5,6 @@ kind: Kustomization
 # it's a Helm values file consumed by the chart source via $values ref.
 # Do NOT list it under resources.
 resources:
+  - namespace.yaml
   - authentik-env.sealedsecret.yaml
   - redis.yaml

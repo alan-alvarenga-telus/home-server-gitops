@@ -16,7 +16,13 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: '*'
 
-  clusterResourceWhitelist: []
+  # Apps in this project may declare their own Namespace (with sync-wave: "-1")
+  # to dodge ArgoCD's rbacReconcile-before-CreateNamespace race for charts that
+  # ship namespaced RBAC. All OTHER cluster-scoped resources remain forbidden
+  # — ClusterRole/ClusterRoleBinding/CRDs/etc. must stay in infrastructure/.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
 
   namespaceResourceWhitelist:
     - group: '*'

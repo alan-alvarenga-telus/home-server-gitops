@@ -1,0 +1,11 @@
+# Explicit namespace declaration so it lands before the chart's Role/RoleBinding.
+# Without this, ArgoCD's rbacReconcile step runs before CreateNamespace=true can
+# create the namespace, and fails with "namespaces authentik not found".
+# sync-wave -1 ensures this resource is applied before anything else in this
+# Application.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: authentik
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
