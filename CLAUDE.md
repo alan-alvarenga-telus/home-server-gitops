@@ -42,7 +42,9 @@ Ordering between Applications is controlled by `argocd.argoproj.io/sync-wave` an
 - In-repo manifests go in `<name>/manifests/` and the Application's `spec.source.path` points there.
 - All Applications use `automated.prune: true` + `automated.selfHeal: true`. Use `ServerSideApply=true` for anything with CRDs or large objects.
 - Use `sync-wave` annotations when one Application depends on CRDs or services from another (e.g. `postgres` waits for the CNPG operator).
-- Secrets are referenced by name (e.g. `postgres-authentik`, `postgres-superuser`) — they are NOT in this repo. They're applied to the cluster out-of-band. Do not commit secret material.
+- **Secrets use Sealed-Secrets.** Never commit a raw `Secret` manifest. Always go through `kubeseal` to produce a `SealedSecret` CR — those ARE committable. Naming convention: `<secret-name>.sealedsecret.yaml`, colocated with the consuming app's other manifests (e.g. `apps/postgres/manifests/postgres-authentik.sealedsecret.yaml`).
+- Sealed-Secrets are **strict-scoped by default** — encrypted for the exact `namespace/name` pair. Renaming or moving the `SealedSecret` to a different namespace breaks decryption. This is the security property we want; don't override it without a reason.
+- The sealed-secrets controller's master key lives in `kube-system` (selector: `sealedsecrets.bitnami.com/sealed-secrets-key`). It's the only thing that can decrypt SealedSecrets in this repo — backed up to the owner's password manager. Restoration procedure in `README.md`.
 - Storage class is `local-path` (k3s built-in). Single-node — no replication, no HA yet.
 
 ## Repo URL
@@ -73,6 +75,7 @@ Child Applications then deploy their own manifest trees via their own `spec.sour
 
 ## Boundaries
 
-- Don't commit secrets, kubeconfigs, or anything under a `Secret` kind with populated `data`/`stringData`.
+- Don't commit raw `Secret` kinds with populated `data`/`stringData`. Use `SealedSecret` instead — see the secrets convention above.
+- Don't commit kubeconfigs, kubeconfig fragments, or the sealed-secrets master key file. The master key file is never long-lived on disk; it goes straight to the password manager after `kubectl get`.
 - Don't change `spec.destination.server` from `https://kubernetes.default.svc` unless you're intentionally targeting a remote cluster.
 - Don't disable `prune` or `selfHeal` without a reason noted in the commit message — the whole point of this repo is that git is the source of truth.
