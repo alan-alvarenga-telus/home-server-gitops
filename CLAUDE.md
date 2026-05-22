@@ -13,13 +13,17 @@ The owner is **learning ArgoCD and kubectl** and is using this repo as a hands-o
 
 ## Architecture
 
-App-of-apps pattern, split into two layers:
+App-of-apps pattern, split into two layers governed by two `AppProject` boundaries:
 
-- `bootstrap/` holds the two root `Application` CRs that you `kubectl apply` after ArgoCD itself is installed.
-  - `bootstrap/infrastructure.yaml` watches `infrastructure/` recursively.
-  - `bootstrap/apps.yaml` watches `apps/` recursively.
+- `bootstrap/` holds the manifests you `kubectl apply` after ArgoCD itself is installed.
+  - `bootstrap/projects/infrastructure.yaml` — `AppProject` "infrastructure". Allows cluster-scoped resources, broader source repos.
+  - `bootstrap/projects/apps.yaml` — `AppProject` "apps". **No** cluster-scoped resources allowed; this repo only as source.
+  - `bootstrap/infrastructure.yaml` — root Application, `project: infrastructure`, watches `infrastructure/` recursively.
+  - `bootstrap/apps.yaml` — root Application, `project: apps`, watches `apps/` recursively.
 - `infrastructure/` — platform layer. Operators, controllers, CNI, storage, ingress, cert-manager, secrets controller. Provides *capabilities and CRDs*.
 - `apps/` — workload layer. User-facing services and resources that *consume* infrastructure's capabilities.
+
+**Bootstrap order:** AppProjects MUST be applied before any Application that references them. Apply `bootstrap/projects/` first, then the two root manifests.
 
 Each subdirectory under `infrastructure/<name>/` or `apps/<name>/` holds one `application.yaml` (an ArgoCD `Application` CR). If the Application deploys in-repo manifests, those live under `<name>/manifests/`.
 
@@ -33,6 +37,8 @@ Ordering between Applications is controlled by `argocd.argoproj.io/sync-wave` an
 
 - One Application per directory under `apps/` or `infrastructure/`. Name the file `application.yaml`.
 - Decide infra vs. app by *lifecycle*, not by domain: the CNPG **operator** is infra, but the **`Cluster` CR** that uses CNPG is an app. CRDs and controllers live in `infrastructure/`; consumers of those CRDs live in `apps/`.
+- Every Application's `spec.project` matches the directory it lives in: `infrastructure` for `bootstrap/infrastructure.yaml` and everything under `infrastructure/`; `apps` for `bootstrap/apps.yaml` and everything under `apps/`. **Never use `project: default`** — it's a wide-open free-for-all.
+- When adding a new app that pulls a remote Helm chart, add the chart repo URL to the appropriate AppProject's `sourceRepos` list, or the sync will fail with a sourceRepos validation error.
 - In-repo manifests go in `<name>/manifests/` and the Application's `spec.source.path` points there.
 - All Applications use `automated.prune: true` + `automated.selfHeal: true`. Use `ServerSideApply=true` for anything with CRDs or large objects.
 - Use `sync-wave` annotations when one Application depends on CRDs or services from another (e.g. `postgres` waits for the CNPG operator).
@@ -48,7 +54,22 @@ Ordering between Applications is controlled by `argocd.argoproj.io/sync-wave` an
 There is no CI yet. Before committing:
 
 - `kubectl apply --dry-run=client -f <file>` for raw manifests.
-- For Helm-based Applications, double-check the `helm:` key spelling — ArgoCD silently ignores unknown keys, so a typo like `heml:` will skip your values without error.
+- For Application files, use `kubectl explain application.spec.source.directory` (and similar) to confirm field names. **ArgoCD silently ignores unknown keys** — there is no schema validation error for typos. Known traps we've hit in this repo:
+  - `heml:` instead of `helm:` (the values block is skipped, chart defaults apply)
+  - `recursive: true` instead of `recurse: true` (recursion never happens; root scans only the top level)
+- After applying any Application change to the cluster, diff the live spec against git: `kubectl get application <name> -n argocd -o yaml | yq '.spec.source' | diff - <(yq '.spec.source' <file>)`. The cluster and the file should be byte-identical; if not, something patched the live resource without a commit.
+
+## Root Application discovery rule
+
+Root Applications (those in `bootstrap/`) MUST set `directory.include` to filter for only Application files. Otherwise `recurse: true` pulls in every YAML under the tree — including the workload manifests that child Applications are *supposed* to deploy — and the root tries to apply them directly. Use:
+
+```yaml
+directory:
+  recurse: true
+  include: '{application.yaml,**/application.yaml}'
+```
+
+Child Applications then deploy their own manifest trees via their own `spec.source.path`, which is not scanned by the root.
 
 ## Boundaries
 

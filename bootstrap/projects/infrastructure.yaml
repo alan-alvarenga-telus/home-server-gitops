@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: infrastructure
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Platform layer — operators, controllers, cluster-scoped services
+
+  sourceRepos:
+    - https://github.com/alan-alvarenga-telus/home-server-gitops.git
+    - https://cloudnative-pg.github.io/charts
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: '*'
+
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

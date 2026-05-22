@@ -9,7 +9,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1" # deploy after operator
 spec:
-  project: default
+  project: apps
   source:
     repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
     targetRevision: HEAD

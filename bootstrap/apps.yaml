@@ -6,13 +6,14 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: apps
   source:
     repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
     targetRevision: HEAD
     path: apps
     directory:
-      recursive: true
+      recurse: true
+      include: '{application.yaml,**/application.yaml}'
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

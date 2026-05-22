@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Workload layer — user-facing services consuming infrastructure capabilities
+
+  sourceRepos:
+    - https://github.com/alan-alvarenga-telus/home-server-gitops.git
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: '*'
+
+  clusterResourceWhitelist: []
+
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
