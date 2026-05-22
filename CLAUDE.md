@@ -31,7 +31,17 @@ Current state:
 - `infrastructure/cloudnative-pg/` — CNPG operator, Helm chart from `cloudnative-pg.github.io/charts`, namespace `cnpg-system`.
 - `apps/postgres/` — a `postgresql.cnpg.io/v1` `Cluster` in namespace `postgres`, backing Authentik.
 
-Ordering between Applications is controlled by `argocd.argoproj.io/sync-wave` annotations (lower = earlier). Wave ordering applies *within a single parent's sync* — to enforce "infrastructure before apps" across the two root Applications, rely on the `ServerSideApply` syncOption and tolerate-missing-CRD options on workloads. (See Lesson 7 — sync-wave discipline.)
+## Sync ordering
+
+ArgoCD provides three ordering mechanisms; pick the right one for the right problem:
+
+1. **Sync phases** (`PreSync` / `Sync` / `PostSync`) — for hooks like one-shot migration Jobs. Rarely used here.
+2. **Sync waves** (`argocd.argoproj.io/sync-wave: "N"` annotation) — orders resources within a single parent's sync. Lower = earlier. **Only works inside one parent's tree.** Wave annotations on resources in `apps/` cannot order them against resources in `infrastructure/` — those are two independent parents.
+3. **Sync options** — per-resource behavior toggles. Most important for cross-tree CRD races:
+   - `SkipDryRunOnMissingResource=true` — workloads tolerate "CRD not found" during dry-run and retry the apply after the CRD arrives. Required on any Application that consumes a CRD installed by a different root (e.g. `apps/postgres` consuming the CNPG operator's CRDs from `infrastructure/cloudnative-pg`).
+
+**Within the `apps/` tree:** sync-wave orders Applications relative to each other (`postgres` is wave 1; an Authentik app that depends on postgres would be wave 2; etc.).
+**Across `apps/` and `infrastructure/`:** waves don't help. Use `SkipDryRunOnMissingResource=true` and let ArgoCD retries handle eventual consistency.
 
 ## Conventions
 

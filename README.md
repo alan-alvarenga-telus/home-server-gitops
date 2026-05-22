@@ -256,8 +256,9 @@ Reason: either the sealed-secrets controller isn't running yet, or the Helm char
 Fix: ensure the override is set; commit; let ArgoCD reconcile; verify with `kubectl get svc -n kube-system | grep sealed-secrets-controller`.
 
 ### `Cluster CRD not found` (postgres app fails initial sync)
-Reason: the CNPG operator hasn't installed the `postgresql.cnpg.io` CRDs yet. Race between the infrastructure and apps roots syncing.
-Fix: ArgoCD retries on backoff; usually resolves within 60s. Lesson 7 (sync-wave discipline) makes this deterministic via `SkipDryRunOnMissingResource=true`.
+Reason: the CNPG operator hasn't installed the `postgresql.cnpg.io` CRDs yet. Race between the `infrastructure` and `apps` roots syncing at bootstrap.
+Mitigation in place: the postgres Application carries `SkipDryRunOnMissingResource=true` in its `syncOptions`, so the dry-run step tolerates missing CRDs. ArgoCD retries the actual apply on the next reconciliation loop, by which point the CRDs are present. You may still see a transient error on first bootstrap; it self-clears within ~60s and does not require intervention.
+If it persists past a few minutes: the CNPG operator install itself is stuck — check `kubectl get application cloudnative-pg -n argocd` and `kubectl get pods -n cnpg-system` for the real problem.
 
 ### `AppProject "apps" not found` (or similar)
 Reason: you applied a root Application before its AppProject existed.
