@@ -1,0 +1,17 @@
+# Sealed-secrets master key — NEVER commit. Backed up to password manager only.
+sealed-secrets-master.key
+*.key
+*.pem
+
+# kubeseal CLI binary / downloaded archive
+kubeseal
+kubeseal-*.tar.gz
+
+# Local kubeconfig fragments
+kubeconfig*
+*.kubeconfig
+
+# Editor / OS junk
+.DS_Store
+*.swp
+*~
