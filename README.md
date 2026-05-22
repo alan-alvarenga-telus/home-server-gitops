@@ -239,6 +239,14 @@ A PostgreSQL version banner means the full stack is working: k3s → ArgoCD → 
 
 ## Troubleshooting
 
+> **Before you panic:** ArgoCD has three independent status fields per Application. They can disagree. Trust them in this order:
+>
+> 1. **`status.health.status`** — what the actual workloads are doing right now. `Healthy` means it's running.
+> 2. **`status.sync.status`** — does the cluster match git? `Synced` means yes.
+> 3. **`status.operationState.message`** — the *last sync attempt's* result. **This is sticky** and can show old errors after the system recovered.
+>
+> If health and sync are both green, the cluster is fine — even if `operationState.message` shows a scary error from earlier. See "Stale ComparisonError after a path/rename change" below.
+
 ### `repo <url> is not permitted in project '<project>'`
 Reason: the chart repo is in `bootstrap/projects/<project>.yaml` (git) but you haven't re-applied the project to the cluster yet. AppProjects don't reconcile from git automatically.
 Fix: `kubectl apply -f bootstrap/projects/`
@@ -258,6 +266,16 @@ Fix: `kubectl apply -f bootstrap/projects/` first, then re-trigger sync via `kub
 ### Application stuck `OutOfSync / Missing` for a long time
 Reason: usually a sync error you haven't seen. Look at events.
 Diagnostic: `kubectl describe application <name> -n argocd | tail -40`. The `Message:` fields under operationState are the real error.
+
+### Stale `ComparisonError: app path does not exist` after a path/rename change
+Symptom: you renamed/moved a directory (e.g. `manifests/` → `base/` + `overlays/`), pushed the commit, and the Application now shows `Sync: Synced, Health: Healthy` but the UI still has a red error about a path that no longer exists.
+Reason: in the brief moment between commits, ArgoCD started a sync against the new revision but with the old `spec.source.path` still cached. That sync **operation** errored. The next **comparison** succeeded because git and cluster actually match — but `operationState.message` is sticky and retains the failed sync's text. Auto-sync doesn't re-run because there's no diff to reconcile.
+Fix: force a fresh sync to overwrite the stale message.
+```bash
+kubectl patch app <name> -n argocd --type merge -p '{"operation":{"sync":{}}}'
+# or click Sync in the UI
+```
+This is not a real error. If `Sync: Synced` and `Health: Healthy`, you're fine.
 
 ### A `kubeseal` command failed but left an empty file
 Reason: shell redirection `>` creates the file before the command runs. If kubeseal fails, the file exists at 0 bytes and would silently deploy nothing if committed.
