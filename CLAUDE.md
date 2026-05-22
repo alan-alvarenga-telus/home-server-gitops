@@ -37,7 +37,16 @@ Current state:
 
 k3s ships Traefik in `kube-system` as the default ingress controller (LoadBalancer service `kube-system/traefik`). HTTP-only for now — no TLS, no cert-manager.
 
-**Hostname convention:** `<app>.home-server.local` for any app that needs browser access. Each consumer adds an `/etc/hosts` entry on their workstation pointing the hostname at Traefik's external IP. Document the IP in the README's "Hostname & Ingress" section so future-you knows where to look.
+**Network topology:**
+- Pi-hole DNS server: `192.168.31.57` (Raspberry Pi, separate host) — authoritative for `home-server.local`
+- Traefik LoadBalancer: `192.168.31.218` (k3s cluster) — receives all `*.home-server.local` traffic
+- LAN devices must use `192.168.31.57` as DNS (typically pushed via DHCP at the router)
+
+**Hostname convention:** `<app>.home-server.local` for any app that needs browser access. DNS is resolved by the Pi-hole via a dnsmasq wildcard (`address=/home-server.local/192.168.31.218` in `/etc/dnsmasq.d/02-home-server.conf` on the Pi-hole box). Every device using Pi-hole as DNS resolves `*.home-server.local` automatically — no per-device `/etc/hosts` edits.
+
+If Pi-hole is unreachable or you're on a non-Pi-hole network, fall back to a workstation `/etc/hosts` entry: `<traefik-ip> <app>.home-server.local`.
+
+**Gotcha:** `.local` is reserved by mDNS. Works fine on Linux without Avahi; Apple devices (macOS/iOS) will likely fail to resolve via unicast DNS. If cross-device support becomes necessary, migrate the wildcard to `.lan` or `.internal` (RFC 8375).
 
 **To expose a new app:**
 1. In the app's chart values (or Ingress manifest), set `ingressClassName: traefik` and `hosts: [<app>.home-server.local]`.

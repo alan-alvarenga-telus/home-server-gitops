@@ -254,15 +254,37 @@ kubectl get pods -n authentik
 
 ### Tier 7: Hostname & Ingress
 
-Authentik is exposed at `http://authentik.home-server.local` via Traefik (k3s's default ingress controller). To reach it from your workstation, add an `/etc/hosts` entry pointing the hostname at Traefik's external IP:
+Authentik is exposed at `http://authentik.home-server.local` via Traefik (k3s's default ingress controller). DNS resolution is provided by the LAN's **Pi-hole** via a dnsmasq wildcard — `*.home-server.local` automatically resolves to Traefik's external IP for every device that uses Pi-hole as DNS.
 
 ```bash
 # Get Traefik's external IP from the cluster
 TRAEFIK_IP=$(kubectl get svc -n kube-system traefik \
   -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-echo "$TRAEFIK_IP authentik.home-server.local"
+echo "Traefik IP: $TRAEFIK_IP"
+```
 
-# Append to your workstation's /etc/hosts (requires sudo)
+**On the Pi-hole box (one-time setup):** SSH in as your normal user, then:
+```bash
+# From workstation:
+ssh pi@192.168.31.57    # adjust user/IP if different
+
+# Then on the Pi-hole:
+sudo tee /etc/dnsmasq.d/02-home-server.conf >/dev/null <<'EOF'
+# Wildcard DNS for the home-server k3s cluster.
+# Any *.home-server.local resolves to Traefik's LoadBalancer IP.
+address=/home-server.local/192.168.31.218
+EOF
+sudo pihole restartdns
+
+# Verify on the Pi-hole itself
+dig @127.0.0.1 authentik.home-server.local +short   # → 192.168.31.218
+exit
+```
+
+If you ever change the Traefik IP (rare, but happens when reinstalling k3s), update the `address=` line and rerun `sudo pihole restartdns`. The IPs are also documented in `CLAUDE.md` → Network topology.
+
+**Fallback** (no Pi-hole, or testing in isolation) — add `/etc/hosts` on the workstation:
+```bash
 echo "$TRAEFIK_IP authentik.home-server.local" | sudo tee -a /etc/hosts
 ```
 
