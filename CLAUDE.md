@@ -29,7 +29,22 @@ Each subdirectory under `infrastructure/<name>/` or `apps/<name>/` holds one `ap
 
 Current state:
 - `infrastructure/cloudnative-pg/` — CNPG operator, Helm chart from `cloudnative-pg.github.io/charts`, namespace `cnpg-system`.
-- `apps/postgres/` — a `postgresql.cnpg.io/v1` `Cluster` in namespace `postgres`, backing Authentik.
+- `infrastructure/sealed-secrets/` — Bitnami sealed-secrets controller in `kube-system` (renamed to `sealed-secrets-controller` so `kubeseal` defaults work).
+- `apps/postgres/` — a `postgresql.cnpg.io/v1` `Cluster` in namespace `postgres`, backing Authentik. Kustomize layout: `base/` + `overlays/home-server/`.
+- `apps/authentik/` — SSO/identity provider, Helm chart from `charts.goauthentik.io`, namespace `authentik`. Multi-source Application (chart + values ref + supplementary kustomize overlay containing the SealedSecret, a bundled redis Deployment/Service, and an explicit Namespace). Exposed via Traefik at `authentik.home-server.local`.
+
+## Hostname & Ingress
+
+k3s ships Traefik in `kube-system` as the default ingress controller (LoadBalancer service `kube-system/traefik`). HTTP-only for now — no TLS, no cert-manager.
+
+**Hostname convention:** `<app>.home-server.local` for any app that needs browser access. Each consumer adds an `/etc/hosts` entry on their workstation pointing the hostname at Traefik's external IP. Document the IP in the README's "Hostname & Ingress" section so future-you knows where to look.
+
+**To expose a new app:**
+1. In the app's chart values (or Ingress manifest), set `ingressClassName: traefik` and `hosts: [<app>.home-server.local]`.
+2. Add `<traefik-external-ip> <app>.home-server.local` to your workstation's `/etc/hosts`.
+3. Browse to `http://<app>.home-server.local`.
+
+No need to touch the AppProject — Ingress is namespaced, allowed by `apps`' `namespaceResourceWhitelist: '*'`.
 
 ## Sync ordering
 
@@ -48,6 +63,7 @@ ArgoCD provides three ordering mechanisms; pick the right one for the right prob
 - One Application per directory under `apps/` or `infrastructure/`. Name the file `application.yaml`.
 - Decide infra vs. app by *lifecycle*, not by domain: the CNPG **operator** is infra, but the **`Cluster` CR** that uses CNPG is an app. CRDs and controllers live in `infrastructure/`; consumers of those CRDs live in `apps/`.
 - Every Application's `spec.project` matches the directory it lives in: `infrastructure` for `bootstrap/infrastructure.yaml` and everything under `infrastructure/`; `apps` for `bootstrap/apps.yaml` and everything under `apps/`. **Never use `project: default`** — it's a wide-open free-for-all.
+- The `apps` AppProject allows exactly one cluster-scoped resource: `Namespace` (no group). Apps that ship namespaced RBAC (Role/RoleBinding) must declare their own `Namespace` with `argocd.argoproj.io/sync-wave: "-1"` to dodge ArgoCD's `rbacReconcile`-before-`CreateNamespace` race. **ClusterRole/ClusterRoleBinding/CRDs/etc. remain forbidden** in this project; those belong in `infrastructure/`.
 - When adding a new app that pulls a remote Helm chart, add the chart repo URL to the appropriate AppProject's `sourceRepos` list, or the sync will fail with a sourceRepos validation error.
 - **Manifest-based apps** use kustomize layering (`base/` + `overlays/<cluster>/`):
   ```

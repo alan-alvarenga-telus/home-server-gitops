@@ -27,8 +27,16 @@ postgresql:
   enabled: false
 
 # Single-node — no extra replicas, no anti-affinity.
-# server.ingress.enabled is false by chart default; reach via kubectl port-forward.
+# Ingress exposes Authentik via Traefik (k3s default) at http://authentik.home.local.
+# Workstation needs /etc/hosts: `<traefik-external-ip> authentik.home.local`.
+# See README "Hostname & Ingress" for the full setup.
 server:
   replicas: 1
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - authentik.home-server.local
+    pathType: Prefix
 worker:
   replicas: 1

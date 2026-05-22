@@ -12,27 +12,30 @@ See [`CLAUDE.md`](./CLAUDE.md) for repository conventions and architecture detai
 bootstrap/                 # kubectl apply, manually, after ArgoCD is installed
   projects/
     infrastructure.yaml    # AppProject "infrastructure" (chart repos allowed)
-    apps.yaml              # AppProject "apps" (no cluster-scoped resources)
+    apps.yaml              # AppProject "apps" (only Namespace allowed cluster-wide)
   infrastructure.yaml      # Root Application -> watches infrastructure/
   apps.yaml                # Root Application -> watches apps/
 
 infrastructure/            # Platform layer (operators, controllers, CRDs)
-  cloudnative-pg/
-  sealed-secrets/
+  cloudnative-pg/          # Postgres operator (Helm)
+  sealed-secrets/          # Bitnami sealed-secrets controller (Helm)
 
 apps/                      # Workload layer
-  postgres/
+  postgres/                # CNPG Cluster CR. Kustomize base/overlay.
     application.yaml
-    base/                  # Universal manifests
+    base/{kustomization.yaml,cluster.yaml}
+    overlays/home-server/{kustomization.yaml,*.sealedsecret.yaml}
+  authentik/               # SSO IdP. Multi-source: chart + values ref + overlay.
+    application.yaml
+    overlays/home-server/
       kustomization.yaml
-      cluster.yaml
-    overlays/
-      home-server/         # Cluster-specific kustomize overlay
-        kustomization.yaml
-        *.sealedsecret.yaml
+      namespace.yaml       # explicit, sync-wave -1
+      values.yaml          # Helm values (NOT a k8s resource)
+      authentik-env.sealedsecret.yaml
+      redis.yaml           # bundled redis (chart 2026.5 dropped its subchart)
 ```
 
-Two `AppProject`s scope what each layer can do. The `apps` project explicitly forbids cluster-scoped resources — a guardrail against a workload chart silently elevating to ClusterRoles.
+Two `AppProject`s scope what each layer can do. The `apps` project allows **only `Namespace`** as a cluster-scoped resource — a deliberate guardrail against workload charts silently elevating to ClusterRoles/CRDs/etc.
 
 ## Prerequisites
 
@@ -49,7 +52,7 @@ Two `AppProject`s scope what each layer can do. The `apps` project explicitly fo
 
 ## Bootstrap from zero
 
-Six tiers, manual through tier 5, GitOps from tier 6 forward. Each tier ends with a verification you can run before moving on.
+Nine tiers, manual through Tier 7, GitOps from Tier 8 forward. Each tier ends with a verification you can run before moving on.
 
 ### Tier 0: Install k3s
 
@@ -105,10 +108,10 @@ kubectl get appproject -n argocd
 # Expected: default, infrastructure, apps
 
 kubectl get application -n argocd
-# Expected: infrastructure, apps, cloudnative-pg, sealed-secrets, postgres
+# Expected: infrastructure, apps, cloudnative-pg, sealed-secrets, postgres, authentik
 ```
 
-The `postgres` Application will show `OutOfSync` / `Healthy` until you finish Tier 4 (sealing the database credentials). That's expected — keep going.
+The `postgres` and `authentik` Applications will show `OutOfSync` until you finish Tiers 4–5 (sealing all credentials). That's expected — keep going.
 
 ### Tier 3: Back up the sealed-secrets master key
 
@@ -192,22 +195,84 @@ git commit -m "seal postgres credentials"
 git push
 ```
 
-### Tier 5: Wait for full reconciliation
+### Tier 5: Seal the Authentik credentials
+
+Authentik needs four secrets in *its own* namespace (Kubernetes Secrets don't cross namespaces). One reads the Postgres password back from the cluster; the others are fresh.
+
+```bash
+# Reuse the existing postgres password from the cluster (no re-typing)
+PG_AUTHENTIK_PASS=$(kubectl get secret postgres-authentik -n postgres \
+  -o jsonpath='{.data.password}' | base64 -d)
+
+# Fresh Authentik secrets — SAVE THESE to your password manager
+AK_SECRET_KEY=$(openssl rand -base64 60 | tr -d '\n/+=' | head -c 64)
+AK_BOOTSTRAP_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+AK_BOOTSTRAP_TOKEN=$(openssl rand -hex 32)
+echo "authentik akadmin password: $AK_BOOTSTRAP_PASSWORD"
+echo "authentik bootstrap API token: $AK_BOOTSTRAP_TOKEN"
+
+# Seal all 8 keys at once (chart's existingSecret path bypasses values.yaml,
+# so non-secret fields like DB host live here too)
+kubectl create secret generic authentik-env \
+  --namespace=authentik \
+  --from-literal=AUTHENTIK_SECRET_KEY="$AK_SECRET_KEY" \
+  --from-literal=AUTHENTIK_POSTGRESQL__HOST="postgres-rw.postgres.svc.cluster.local" \
+  --from-literal=AUTHENTIK_POSTGRESQL__NAME="authentik" \
+  --from-literal=AUTHENTIK_POSTGRESQL__USER="authentik" \
+  --from-literal=AUTHENTIK_POSTGRESQL__PASSWORD="$PG_AUTHENTIK_PASS" \
+  --from-literal=AUTHENTIK_REDIS__HOST="authentik-redis-master.authentik.svc.cluster.local" \
+  --from-literal=AUTHENTIK_BOOTSTRAP_PASSWORD="$AK_BOOTSTRAP_PASSWORD" \
+  --from-literal=AUTHENTIK_BOOTSTRAP_TOKEN="$AK_BOOTSTRAP_TOKEN" \
+  --dry-run=client -o yaml | \
+  kubeseal --format=yaml > apps/authentik/overlays/home-server/authentik-env.sealedsecret.yaml
+
+# Sanity check + commit
+kubectl kustomize apps/authentik/overlays/home-server/ >/dev/null && echo "ok"
+
+git add apps/authentik/overlays/home-server/authentik-env.sealedsecret.yaml
+git commit -m "seal authentik environment"
+git push
+```
+
+### Tier 6: Wait for full reconciliation
 
 ```bash
 # All Applications should reach Synced + Healthy
 kubectl get application -n argocd -w
 # Ctrl+C when stable
 
-# Sealed-secrets controller should have produced the real Secrets
+# Postgres
 kubectl get secret -n postgres
 # Expected: postgres-authentik, postgres-superuser, plus the CNPG-managed TLS secrets
-
-# Postgres cluster should be Healthy with one Running pod
 kubectl get cluster,pods -n postgres
+# Expected: postgres cluster Healthy, 1 Running pod
+
+# Authentik (takes ~2 min for first install — image pulls + DB migrations)
+kubectl get pods -n authentik
+# Expected: authentik-redis-master, authentik-server, authentik-worker — all 1/1 Running
 ```
 
-### Tier 6: ArgoCD reconciles everything else
+### Tier 7: Hostname & Ingress
+
+Authentik is exposed at `http://authentik.home-server.local` via Traefik (k3s's default ingress controller). To reach it from your workstation, add an `/etc/hosts` entry pointing the hostname at Traefik's external IP:
+
+```bash
+# Get Traefik's external IP from the cluster
+TRAEFIK_IP=$(kubectl get svc -n kube-system traefik \
+  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "$TRAEFIK_IP authentik.home-server.local"
+
+# Append to your workstation's /etc/hosts (requires sudo)
+echo "$TRAEFIK_IP authentik.home-server.local" | sudo tee -a /etc/hosts
+```
+
+Open `http://authentik.home-server.local` in your browser. Log in with:
+- Username: `akadmin`
+- Password: the `AK_BOOTSTRAP_PASSWORD` you saved in Tier 5
+
+Note: HTTP only, no TLS yet. Cert-manager + Let's Encrypt is a future improvement.
+
+### Tier 8: ArgoCD reconciles everything else
 
 You're done with manual steps. Future changes flow through git:
 
@@ -220,21 +285,40 @@ git push
 
 ## End-to-end smoke test
 
-After bootstrap, connect to Postgres from inside the cluster:
+Two checks prove the full stack is healthy.
+
+**Postgres** — connect from inside the cluster using the credentials in the sealed Secret:
 
 ```bash
-PG_PASS=<the authentik password from your password manager>
+PG_PASS=$(kubectl get secret postgres-authentik -n postgres \
+  -o jsonpath='{.data.password}' | base64 -d)
 kubectl run -it --rm psql --image=postgres:16 --restart=Never -n postgres -- \
   bash -c "PGPASSWORD='$PG_PASS' psql -h postgres-rw.postgres.svc -U authentik -d authentik -c 'SELECT version();'"
 ```
 
-A PostgreSQL version banner means the full stack is working: k3s → ArgoCD → CNPG operator → Cluster CR → primary pod → readable database with the credentials in your sealed Secret.
+A PostgreSQL version banner means: k3s → ArgoCD → CNPG operator → Cluster CR → primary pod → DB authentication via sealed Secret all working.
+
+**Authentik via Traefik** — exercises the ingress path:
+
+```bash
+curl -sI http://authentik.home-server.local | head -5
+# Expected: HTTP/1.1 302 Found, Location: /if/flow/initial-setup/ (or /if/flow/default-authentication-flow/)
+```
+
+A 302 to an Authentik flow means: Traefik → Authentik server → Postgres → Redis all reachable. If you instead get `curl: (6) Could not resolve host`, your `/etc/hosts` entry is missing. If you get a Traefik 404, the Ingress hasn't reconciled yet — wait a moment and retry.
 
 ## Day-2 operations
 
 - **Add a new app:** create `apps/<name>/application.yaml`, commit, push. The `apps` root picks it up via recursive scan.
-- **Add a new operator/controller:** same shape under `infrastructure/<name>/`. If it pulls from a new Helm repo, add the repo URL to `bootstrap/projects/infrastructure.yaml` and **re-apply that file manually** — AppProjects aren't reconciled by ArgoCD yet (see `Lesson 5.5` in our backlog).
+- **Add a new operator/controller:** same shape under `infrastructure/<name>/`. If it pulls from a new Helm repo, add the repo URL to `bootstrap/projects/infrastructure.yaml` and **re-apply that file manually** — AppProjects aren't reconciled by ArgoCD yet.
 - **Add a new credential:** generate the value, seal it with `kubeseal`, commit the `.sealedsecret.yaml` next to the app that consumes it.
+- **Expose a new app via Traefik:** in the app's chart values (or its own Ingress manifest), set `ingressClassName: traefik` and a hostname matching `<app>.home-server.local`. Then on your workstation:
+  ```bash
+  TRAEFIK_IP=$(kubectl get svc -n kube-system traefik \
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  echo "$TRAEFIK_IP <app>.home-server.local" | sudo tee -a /etc/hosts
+  ```
+  Then browse to `http://<app>.home-server.local`. No AppProject change needed — `Ingress` is a namespaced resource and is allowed by default.
 - **Pause GitOps temporarily:** disable auto-sync on a specific Application in the UI. Re-enable when done. If you make changes by hand during the pause, commit them — `selfHeal: true` reverts manual edits on the next reconciliation loop.
 
 ## Troubleshooting
@@ -278,6 +362,15 @@ kubectl patch app <name> -n argocd --type merge -p '{"operation":{"sync":{}}}'
 ```
 This is not a real error. If `Sync: Synced` and `Health: Healthy`, you're fine.
 
+### Helm chart render fails with `<field> is deprecated` (Authentik chart)
+Reason: the chart maintainers ship deprecations between releases. The error message tells you the field is gone but not what to use instead.
+Diagnostic: `helm repo update && helm show values <repo>/<chart>` to see current schema. For Authentik specifically, current shape is documented in `CLAUDE.md` → Validation section.
+Common Authentik 2026.x replacements: top-level `envFrom` / `env` / `envValueFrom` → `authentik.existingSecret.secretName`; top-level `ingress` → `server.ingress`; bundled redis subchart → not bundled, provide your own.
+
+### `namespaces "authentik" not found` during rbacReconcile
+Reason: ArgoCD's `kubectl auth reconcile` step for namespaced RBAC (Role/RoleBinding) runs before `CreateNamespace=true` can create the namespace. Charts that ship their own RBAC trip this race.
+Fix: declare the `Namespace` as an explicit resource in the kustomize overlay with `argocd.argoproj.io/sync-wave: "-1"`. Requires the `apps` AppProject to allow the `Namespace` kind in its `clusterResourceWhitelist` — which is already configured for this repo. See `apps/authentik/overlays/home-server/namespace.yaml` for the pattern.
+
 ### A `kubeseal` command failed but left an empty file
 Reason: shell redirection `>` creates the file before the command runs. If kubeseal fails, the file exists at 0 bytes and would silently deploy nothing if committed.
 Fix: `rm` the empty file, re-run with correct flags, verify `wc -l <file>` is non-zero before committing.
@@ -288,12 +381,14 @@ Fix: `rm` the empty file, re-run with correct flags, verify `wc -l <file>` is no
 
 ## What this README does NOT cover
 
-- **Ingress / TLS.** No ingress controller installed; reach things via `kubectl port-forward`.
+- **TLS.** Traefik serves HTTP only. No cert-manager, no Let's Encrypt. Browser shows a "not secure" warning. A future lesson will add cert-manager + a local CA (or Let's Encrypt staging) for `*.home-server.local`.
+- **Real DNS.** Hostnames resolve only via per-workstation `/etc/hosts` entries. A homelab DNS server (Pi-hole, AdGuard Home, dnsmasq) would let every device on the LAN reach apps by name without manual `/etc/hosts` edits.
 - **Backups.** CNPG can back up to S3-compatible storage; not configured here.
 - **Monitoring.** No Prometheus, Grafana, or alerting. `monitoring.enablePodMonitor: false` in `apps/postgres/base/cluster.yaml`.
 - **Storage HA.** `local-path` is single-node only. Node loss = data loss.
 - **k3s upgrades.** Out-of-band: `curl -sfL https://get.k3s.io | sh -` with a newer release.
 - **AppProject GitOps reconciliation.** Project changes still require manual `kubectl apply`. Self-managed projects are a pending lesson.
+- **Pinned chart versions.** All chart Applications use `targetRevision: "*"`. Convenient now, will eventually break when a maintainer ships a breaking change (we already hit this with Authentik 2026.5 deprecations). Pin specific versions when stability matters more than freshness.
 
 ## Recovery: "I broke it, start over"
 
@@ -307,7 +402,12 @@ sudo /usr/local/bin/k3s-uninstall.sh
 ```
 
 The only things you cannot recover from git:
-1. The two database passwords (in your password manager)
-2. The sealed-secrets master key (also in your password manager)
+1. The sealed-secrets master key
+2. The Postgres `authentik` user password
+3. The Postgres `postgres` superuser password
+4. The Authentik admin (`akadmin`) password
+5. The Authentik bootstrap API token
 
-Restore the key (Tier 3 recovery procedure) before applying the postgres SealedSecrets, otherwise the controller will refuse to decrypt them (it was sealed with the *old* key, and a fresh install generates a new one by default).
+Items 2–5 are *encoded* in the SealedSecrets in git, but you can't decrypt them without the master key, which is item 1. Keep all five in your password manager.
+
+**Restoration order matters:** restore the master key (Tier 3 recovery procedure) *before* the sealed-secrets controller starts processing the SealedSecrets in git. Otherwise the controller generates a new keypair, can't decrypt the existing SealedSecrets (which were sealed with the *old* key), and everything stays OutOfSync until you either restore the original key or re-seal every secret against the new key.
