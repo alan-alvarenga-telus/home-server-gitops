@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authentik
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: apps
+  sources:
+    - chart: authentik
+      repoURL: https://charts.goauthentik.io
+      targetRevision: "*"
+      helm:
+        releaseName: authentik
+        valueFiles:
+          - $values/apps/authentik/overlays/home-server/values.yaml
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      ref: values
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      path: apps/authentik/overlays/home-server
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authentik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true

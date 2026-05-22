@@ -49,7 +49,7 @@ ArgoCD provides three ordering mechanisms; pick the right one for the right prob
 - Decide infra vs. app by *lifecycle*, not by domain: the CNPG **operator** is infra, but the **`Cluster` CR** that uses CNPG is an app. CRDs and controllers live in `infrastructure/`; consumers of those CRDs live in `apps/`.
 - Every Application's `spec.project` matches the directory it lives in: `infrastructure` for `bootstrap/infrastructure.yaml` and everything under `infrastructure/`; `apps` for `bootstrap/apps.yaml` and everything under `apps/`. **Never use `project: default`** — it's a wide-open free-for-all.
 - When adding a new app that pulls a remote Helm chart, add the chart repo URL to the appropriate AppProject's `sourceRepos` list, or the sync will fail with a sourceRepos validation error.
-- In-repo manifest apps use kustomize layering. Layout:
+- **Manifest-based apps** use kustomize layering (`base/` + `overlays/<cluster>/`):
   ```
   apps/<name>/
     application.yaml              # spec.source.path: apps/<name>/overlays/<cluster>
@@ -58,10 +58,23 @@ ArgoCD provides three ordering mechanisms; pick the right one for the right prob
       <resource>.yaml
     overlays/
       <cluster>/                  # named after the target cluster, not "dev"/"prod"
-        kustomization.yaml        # resources: [../../base, plus cluster-specific resources]
+        kustomization.yaml        # resources: [../../base, plus cluster-specific]
         <cluster-specific>.yaml   # SealedSecrets, patches, etc.
   ```
   The Application's `spec.source.path` points at the overlay, never at the base. ArgoCD auto-detects `kustomization.yaml` and runs kustomize.
+
+- **Chart-based apps** use a multi-source Application — no `base/` because the Helm chart IS the universal layer:
+  ```
+  apps/<name>/
+    application.yaml              # spec.sources: chart + repo-ref + repo-path
+    overlays/
+      <cluster>/
+        kustomization.yaml        # resources: [supplementary resources only]
+        values.yaml               # Helm values, referenced via $values ref;
+                                  # NOT a k8s resource, NOT listed under resources:
+        *.sealedsecret.yaml       # supplementary SealedSecrets, etc.
+  ```
+  The Application has three sources: the chart, a `ref: values` source pointing at this repo (so `$values` resolves), and a path source pointing at the overlay. ArgoCD renders chart + kustomize together as one Application.
 - SealedSecrets live in the overlay, not the base. They're encrypted to a specific cluster's master key, so they're inherently cluster-specific.
 - Before committing kustomize changes, sanity-check the build: `kubectl kustomize apps/<name>/overlays/<cluster>/`. Catches malformed references before ArgoCD does.
 - All Applications use `automated.prune: true` + `automated.selfHeal: true`. Use `ServerSideApply=true` for anything with CRDs or large objects.

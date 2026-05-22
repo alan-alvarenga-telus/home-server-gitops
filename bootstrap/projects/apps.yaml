@@ -10,6 +10,7 @@ spec:
 
   sourceRepos:
     - https://github.com/alan-alvarenga-telus/home-server-gitops.git
+    - https://charts.goauthentik.io
 
   destinations:
     - server: https://kubernetes.default.svc

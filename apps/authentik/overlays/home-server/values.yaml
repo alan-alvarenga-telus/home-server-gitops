@@ -1,0 +1,38 @@
+# Helm values for the Authentik chart on the home-server cluster.
+# Consumed via $values ref by apps/authentik/application.yaml.
+
+authentik:
+  # AUTHENTIK_SECRET_KEY is supplied via envFrom below (sealed-secret).
+  postgresql:
+    host: postgres-rw.postgres.svc.cluster.local
+    name: authentik
+    user: authentik
+    # AUTHENTIK_POSTGRESQL__PASSWORD is supplied via envFrom below.
+  redis:
+    host: authentik-redis-master.authentik.svc.cluster.local
+
+# Disable the chart's bundled postgresql — we use the external CNPG cluster.
+postgresql:
+  enabled: false
+
+# Enable the chart's bundled redis. Homelab-scale: in-cluster master, no HA.
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+
+# Wire all required AUTHENTIK_* env vars from the sealed Secret.
+envFrom:
+  - secretRef:
+      name: authentik-env
+
+# Single-node homelab — no replicas, no anti-affinity.
+server:
+  replicas: 1
+worker:
+  replicas: 1
+
+# No ingress yet — reach via kubectl port-forward.
+ingress:
+  enabled: false
