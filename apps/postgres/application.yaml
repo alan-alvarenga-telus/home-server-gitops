@@ -1,0 +1,26 @@
+# apps/postgres/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "1" # deploy after operator
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+    targetRevision: HEAD
+    path: apps/postgres/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: postgres
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,42 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres
+  namespace: postgres
+spec:
+  instances: 1 # single node home lab - increase for HA later
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+      effective_cache_size: "768MB"
+      maintenance_work_mem: "64MB"
+      checkpoint_completion_target: "0.9"
+      wal_buffers: "16MB"
+      default_statistics_target: "100"
+
+  bootstrap:
+    initdb:
+      database: authentik # first database created automatically
+      owner: authentik # owns that database
+      secret:
+        name: postgres-authentik
+
+  superuserSecret:
+    name: postgres-superuser
+
+  storage:
+    size: 10Gi
+    storageClass: local-path # k3s built-in storage class
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  monitoring:
+    enablePodMonitor: false # set true when you add Prometheus later
