@@ -39,10 +39,24 @@ Ordering between Applications is controlled by `argocd.argoproj.io/sync-wave` an
 - Decide infra vs. app by *lifecycle*, not by domain: the CNPG **operator** is infra, but the **`Cluster` CR** that uses CNPG is an app. CRDs and controllers live in `infrastructure/`; consumers of those CRDs live in `apps/`.
 - Every Application's `spec.project` matches the directory it lives in: `infrastructure` for `bootstrap/infrastructure.yaml` and everything under `infrastructure/`; `apps` for `bootstrap/apps.yaml` and everything under `apps/`. **Never use `project: default`** — it's a wide-open free-for-all.
 - When adding a new app that pulls a remote Helm chart, add the chart repo URL to the appropriate AppProject's `sourceRepos` list, or the sync will fail with a sourceRepos validation error.
-- In-repo manifests go in `<name>/manifests/` and the Application's `spec.source.path` points there.
+- In-repo manifest apps use kustomize layering. Layout:
+  ```
+  apps/<name>/
+    application.yaml              # spec.source.path: apps/<name>/overlays/<cluster>
+    base/
+      kustomization.yaml          # resources: [the universal manifests]
+      <resource>.yaml
+    overlays/
+      <cluster>/                  # named after the target cluster, not "dev"/"prod"
+        kustomization.yaml        # resources: [../../base, plus cluster-specific resources]
+        <cluster-specific>.yaml   # SealedSecrets, patches, etc.
+  ```
+  The Application's `spec.source.path` points at the overlay, never at the base. ArgoCD auto-detects `kustomization.yaml` and runs kustomize.
+- SealedSecrets live in the overlay, not the base. They're encrypted to a specific cluster's master key, so they're inherently cluster-specific.
+- Before committing kustomize changes, sanity-check the build: `kubectl kustomize apps/<name>/overlays/<cluster>/`. Catches malformed references before ArgoCD does.
 - All Applications use `automated.prune: true` + `automated.selfHeal: true`. Use `ServerSideApply=true` for anything with CRDs or large objects.
 - Use `sync-wave` annotations when one Application depends on CRDs or services from another (e.g. `postgres` waits for the CNPG operator).
-- **Secrets use Sealed-Secrets.** Never commit a raw `Secret` manifest. Always go through `kubeseal` to produce a `SealedSecret` CR — those ARE committable. Naming convention: `<secret-name>.sealedsecret.yaml`, colocated with the consuming app's other manifests (e.g. `apps/postgres/manifests/postgres-authentik.sealedsecret.yaml`).
+- **Secrets use Sealed-Secrets.** Never commit a raw `Secret` manifest. Always go through `kubeseal` to produce a `SealedSecret` CR — those ARE committable. Naming convention: `<secret-name>.sealedsecret.yaml`, colocated in the consuming app's kustomize **overlay** (e.g. `apps/postgres/overlays/home-server/postgres-authentik.sealedsecret.yaml`) — not the base, since SealedSecrets are cluster-specific.
 - Sealed-Secrets are **strict-scoped by default** — encrypted for the exact `namespace/name` pair. Renaming or moving the `SealedSecret` to a different namespace breaks decryption. This is the security property we want; don't override it without a reason.
 - The sealed-secrets controller's master key lives in `kube-system` (selector: `sealedsecrets.bitnami.com/sealed-secrets-key`). It's the only thing that can decrypt SealedSecrets in this repo — backed up to the owner's password manager. Restoration procedure in `README.md`.
 - The sealed-secrets Helm chart sets `fullnameOverride: sealed-secrets-controller` so the deployment/service names match `kubeseal`'s compiled-in defaults (`sealed-secrets-controller` in `kube-system`). Without this, every `kubeseal` invocation needs `--controller-name=sealed-secrets --controller-namespace=kube-system` flags. Don't remove the override.

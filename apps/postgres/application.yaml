@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
     targetRevision: HEAD
-    path: apps/postgres/manifests
+    path: apps/postgres/overlays/home-server
   destination:
     server: https://kubernetes.default.svc
     namespace: postgres

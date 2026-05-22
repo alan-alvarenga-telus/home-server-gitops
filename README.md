@@ -23,9 +23,13 @@ infrastructure/            # Platform layer (operators, controllers, CRDs)
 apps/                      # Workload layer
   postgres/
     application.yaml
-    manifests/             # Workload manifests + SealedSecrets
+    base/                  # Universal manifests
+      kustomization.yaml
       cluster.yaml
-      *.sealedsecret.yaml
+    overlays/
+      home-server/         # Cluster-specific kustomize overlay
+        kustomization.yaml
+        *.sealedsecret.yaml
 ```
 
 Two `AppProject`s scope what each layer can do. The `apps` project explicitly forbids cluster-scoped resources — a guardrail against a workload chart silently elevating to ClusterRoles.
@@ -158,7 +162,7 @@ kubectl create secret generic postgres-authentik \
   --from-literal=username=authentik \
   --from-literal=password="$PG_AUTHENTIK_PASS" \
   --dry-run=client -o yaml | \
-  kubeseal --format=yaml > apps/postgres/manifests/postgres-authentik.sealedsecret.yaml
+  kubeseal --format=yaml > apps/postgres/overlays/home-server/postgres-authentik.sealedsecret.yaml
 
 # Repeat for the superuser
 PG_SUPERUSER_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
@@ -170,7 +174,7 @@ kubectl create secret generic postgres-superuser \
   --from-literal=username=postgres \
   --from-literal=password="$PG_SUPERUSER_PASS" \
   --dry-run=client -o yaml | \
-  kubeseal --format=yaml > apps/postgres/manifests/postgres-superuser.sealedsecret.yaml
+  kubeseal --format=yaml > apps/postgres/overlays/home-server/postgres-superuser.sealedsecret.yaml
 ```
 
 If any raw `Secret` with these names already exists in the cluster (from a partial bootstrap), delete them so the sealed-secrets controller can claim ownership:
@@ -183,7 +187,7 @@ kubectl delete secret postgres-authentik postgres-superuser postgres-uthentik \
 Commit and push:
 
 ```bash
-git add apps/postgres/manifests/*.sealedsecret.yaml
+git add apps/postgres/overlays/home-server/*.sealedsecret.yaml
 git commit -m "seal postgres credentials"
 git push
 ```
@@ -208,7 +212,7 @@ kubectl get cluster,pods -n postgres
 You're done with manual steps. Future changes flow through git:
 
 ```bash
-vim apps/postgres/manifests/cluster.yaml
+vim apps/postgres/base/cluster.yaml
 git add -p && git commit -m "increase shared_buffers"
 git push
 # ArgoCD picks it up within ~3 minutes (or click Refresh in the UI for instant).
@@ -267,7 +271,7 @@ Fix: `rm` the empty file, re-run with correct flags, verify `wc -l <file>` is no
 
 - **Ingress / TLS.** No ingress controller installed; reach things via `kubectl port-forward`.
 - **Backups.** CNPG can back up to S3-compatible storage; not configured here.
-- **Monitoring.** No Prometheus, Grafana, or alerting. `monitoring.enablePodMonitor: false` in `apps/postgres/manifests/cluster.yaml`.
+- **Monitoring.** No Prometheus, Grafana, or alerting. `monitoring.enablePodMonitor: false` in `apps/postgres/base/cluster.yaml`.
 - **Storage HA.** `local-path` is single-node only. Node loss = data loss.
 - **k3s upgrades.** Out-of-band: `curl -sfL https://get.k3s.io | sh -` with a newer release.
 - **AppProject GitOps reconciliation.** Project changes still require manual `kubectl apply`. Self-managed projects are a pending lesson.
