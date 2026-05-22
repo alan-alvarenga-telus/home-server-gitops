@@ -11,6 +11,8 @@ spec:
     repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
     targetRevision: HEAD
     path: apps
+    directory:
+      recursive: true
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
