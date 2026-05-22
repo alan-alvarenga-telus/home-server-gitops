@@ -97,6 +97,15 @@ There is no CI yet. Before committing:
 - For Application files, use `kubectl explain application.spec.source.directory` (and similar) to confirm field names. **ArgoCD silently ignores unknown keys** — there is no schema validation error for typos. Known traps we've hit in this repo:
   - `heml:` instead of `helm:` (the values block is skipped, chart defaults apply)
   - `recursive: true` instead of `recurse: true` (recursion never happens; root scans only the top level)
+- For Helm chart values, **the chart's deprecation messages tell you a field is gone but not what to use instead.** Always sanity-check values structure against the *current* chart schema before pushing:
+  ```bash
+  helm repo add <name> <url>
+  helm repo update
+  helm show values <name>/<chart> | less
+  ```
+  Known traps we've hit:
+  - Authentik chart 2026.x: top-level `envFrom:`, `env:`, `envValueFrom:`, `ingress:` are all deprecated. Use `authentik.existingSecret.secretName` for credentials (single Secret with ALL `AUTHENTIK_*` env vars including non-secret ones like DB host); use `server.ingress.*` for ingress. The chart also dropped its bundled redis subchart, so the workload must provide its own — we ship a minimal `redis.yaml` in the overlay.
+  - When a chart provisions cluster-scoped RBAC (ClusterRole/ClusterRoleBinding) that the `apps` AppProject refuses, look for a chart toggle to disable it. The Authentik chart's outpost RBAC is toggled off via `serviceAccount.clusterRole.enabled: false`. Don't loosen the AppProject guardrail to accommodate a chart — find the toggle.
 - After applying any Application change to the cluster, diff the live spec against git: `kubectl get application <name> -n argocd -o yaml | yq '.spec.source' | diff - <(yq '.spec.source' <file>)`. The cluster and the file should be byte-identical; if not, something patched the live resource without a commit.
 
 ## Root Application discovery rule

@@ -11,23 +11,24 @@ authentik:
   existingSecret:
     secretName: authentik-env
 
+# The bundled authentik-remote-cluster subchart (aliased here as serviceAccount)
+# creates ClusterRole+ClusterRoleBinding for managing outposts across
+# namespaces. The `apps` AppProject disallows cluster-scoped resources by
+# design (see Lesson 3). We're not using outposts, so disable it.
+# Keeps the ServiceAccount, Role, and RoleBinding the pods actually need.
+serviceAccount:
+  clusterRole:
+    enabled: false
+
 # External Postgres via the CNPG cluster. Disable the chart's bundled subchart.
+# Redis is no longer bundled in chart 2026.5 — we deploy our own via
+# overlays/home-server/redis.yaml.
 postgresql:
   enabled: false
 
-# Bundled redis is fine for a single-node homelab.
-redis:
-  enabled: true
-  architecture: standalone
-  auth:
-    enabled: false
-
-# Single-node — no replicas, no anti-affinity.
+# Single-node — no extra replicas, no anti-affinity.
+# server.ingress.enabled is false by chart default; reach via kubectl port-forward.
 server:
   replicas: 1
 worker:
   replicas: 1
-
-# No ingress yet — reach via kubectl port-forward.
-ingress:
-  enabled: false

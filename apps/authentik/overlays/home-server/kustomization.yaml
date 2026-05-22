@@ -6,3 +6,4 @@ kind: Kustomization
 # Do NOT list it under resources.
 resources:
   - authentik-env.sealedsecret.yaml
+  - redis.yaml
