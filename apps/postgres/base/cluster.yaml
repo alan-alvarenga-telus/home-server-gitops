@@ -48,6 +48,8 @@ spec:
       - name: claro-ai-crm
         ensure: present
         login: true
+        inherit: true            # CNPG default; declared explicitly to avoid ArgoCD drift detection
+        connectionLimit: -1      # CNPG default; same reason
         passwordSecret:
           name: postgres-claro-ai-crm
 
