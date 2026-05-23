@@ -23,6 +23,12 @@ spec:
       secret:
         name: postgres-authentik
 
+  # Superuser external login. CNPG defaults this to false (postgres user locked
+  # in pg_hba.conf) for safety. Enabled here so admin tasks (CREATE DATABASE,
+  # CREATE EXTENSION, GRANT) can be run from outside the cluster against the
+  # LoadBalancer service. Authentik and other workloads should use their own
+  # non-superuser accounts; this is only for human admin work.
+  enableSuperuserAccess: true
   superuserSecret:
     name: postgres-superuser
 
