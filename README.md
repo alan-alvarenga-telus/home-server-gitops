@@ -280,39 +280,36 @@ Note: HTTP only, no TLS yet. Cert-manager + Let's Encrypt is a future improvemen
 
 ### Tier 8: Private Docker registry — workstation + k3s host config
 
-ArgoCD has already deployed the registry to the cluster (`infrastructure/registry/`). Two pieces of host-level config make it actually usable for build/push/deploy. **Each piece is a one-time setup per machine** and lives outside this repo — it's host state, not cluster state.
+ArgoCD has already deployed the registry to the cluster (`infrastructure/registry/`). It terminates TLS with a self-signed cert whose private key never leaves the cluster — only the public CA cert needs to be distributed to clients. Two pieces of host-level config make it actually usable for build/push/deploy. **Each piece is a one-time setup per machine** and lives outside this repo.
 
-**Workstation (where you run `docker build`):** add the registry hostname to Docker's `insecure-registries`. The registry serves plain HTTP; without this Docker refuses to talk to it.
+**Workstation (where you run `docker build`):** install the registry's CA cert in Docker's per-host trust directory. Docker auto-discovers it on each request — no daemon restart needed.
 
 ```bash
-# Linux / Docker Engine
-sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'
-{
-  "insecure-registries": ["registry.home-server.local"]
-}
-EOF
-sudo systemctl restart docker
+sudo mkdir -p /etc/docker/certs.d/registry.home-server.local
+kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\.crt}' | base64 -d | \
+  sudo tee /etc/docker/certs.d/registry.home-server.local/ca.crt >/dev/null
 ```
 
-Docker Desktop: Settings → Docker Engine, paste the same JSON, Apply & Restart.
+Docker Desktop on macOS/Windows: see [Docker's certs.d docs](https://docs.docker.com/engine/security/certificates/) — the VM has its own `/etc/docker/certs.d/` accessible via Settings.
 
-**k3s host (where the cluster pulls images from):** add `/etc/rancher/k3s/registries.yaml` with the endpoint AND the registry credentials. Containerd will read this file on every pull, so any pod referencing `registry.home-server.local/...` images authenticates **without** needing `imagePullSecrets` in the manifest.
+**k3s host (where the cluster pulls images from):** copy the same CA cert to the host and tell containerd about it in `/etc/rancher/k3s/registries.yaml`. Containerd reads this on every pull, so any pod referencing `registry.home-server.local/...` images authenticates **without** needing `imagePullSecrets` in the manifest.
 
 ```bash
-# On the k3s host. Replace <user>/<pass> with the credentials you saved when
-# generating the registry-auth SealedSecret.
+# Copy the cert to the host (run from a workstation with kubectl access)
+kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\.crt}' | base64 -d | \
+  ssh <user>@<k3s-host> "sudo tee /etc/rancher/k3s/registry-ca.crt >/dev/null"
+
+# Then SSH in and write the registries.yaml. Substitute the credentials from
+# your password manager.
+ssh <user>@<k3s-host>
 sudo tee /etc/rancher/k3s/registries.yaml >/dev/null <<'EOF'
-mirrors:
-  "registry.home-server.local":
-    endpoint:
-      - "http://registry.home-server.local"
 configs:
   "registry.home-server.local":
     auth:
       username: <user>
       password: <pass>
     tls:
-      insecure_skip_verify: true
+      ca_file: /etc/rancher/k3s/registry-ca.crt
 EOF
 sudo systemctl restart k3s
 ```

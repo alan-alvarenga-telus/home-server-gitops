@@ -115,11 +115,11 @@ ArgoCD provides three ordering mechanisms; pick the right one for the right prob
 
 ## Private Docker registry
 
-`infrastructure/registry/` runs `registry:2` exposed at `http://registry.home-server.local` via Traefik. htpasswd auth, sealed creds in `infrastructure/registry/overlays/home-server/registry-auth.sealedsecret.yaml`.
+`infrastructure/registry/` runs `registry:2` exposed at `https://registry.home-server.local` via Traefik. htpasswd auth, sealed creds in `infrastructure/registry/overlays/home-server/registry-auth.sealedsecret.yaml`. TLS terminated by a self-signed cert (10-year validity, CN matches hostname) stored in `registry-tls.sealedsecret.yaml`; private key never leaves the cluster.
 
 **Two pieces of host-level state live outside this repo** (one-time setup, documented in `README.md`):
-- Workstation: `/etc/docker/daemon.json` lists `registry.home-server.local` in `insecure-registries` (the registry serves plain HTTP).
-- k3s host: `/etc/rancher/k3s/registries.yaml` has both the HTTP endpoint AND embedded `auth.username` / `auth.password` so containerd pulls authenticated automatically — **no per-namespace imagePullSecrets needed.**
+- Workstation: the registry's CA cert at `/etc/docker/certs.d/registry.home-server.local/ca.crt`. Extract from cluster: `kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\.crt}' | base64 -d`. Docker auto-discovers it; no daemon restart needed.
+- k3s host: `/etc/rancher/k3s/registries.yaml` with `auth.username` / `auth.password` and `tls.ca_file` pointing to the same CA cert (also copied to the host). Containerd pulls authenticated automatically — **no per-namespace imagePullSecrets needed.**
 
 **Build → push → deploy workflow:** `docker build -t registry.home-server.local/<app>:<tag>` → `docker push registry.home-server.local/<app>:<tag>` → reference `image: registry.home-server.local/<app>:<tag>` in any Deployment manifest under `apps/`. The cluster pulls via the containerd config.
 
