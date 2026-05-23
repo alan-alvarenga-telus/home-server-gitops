@@ -254,39 +254,22 @@ kubectl get pods -n authentik
 
 ### Tier 7: Hostname & Ingress
 
-Authentik is exposed at `http://authentik.home-server.local` via Traefik (k3s's default ingress controller). DNS resolution is provided by the LAN's **Pi-hole** via a dnsmasq wildcard — `*.home-server.local` automatically resolves to Traefik's external IP for every device that uses Pi-hole as DNS.
+Apps are exposed at `http://<app>.home-server.local` via Traefik (k3s's default ingress controller). The cluster requires DNS to resolve these names to Traefik's external IP. **How you provide DNS is your concern** — this repo only owns the Ingress configuration.
 
 ```bash
-# Get Traefik's external IP from the cluster
+# Confirm Traefik's external IP (the value clients need to reach)
 TRAEFIK_IP=$(kubectl get svc -n kube-system traefik \
   -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 echo "Traefik IP: $TRAEFIK_IP"
 ```
 
-**On the Pi-hole box (one-time setup):** SSH in as your normal user, then:
-```bash
-# From workstation:
-ssh pi@192.168.31.57    # adjust user/IP if different
+Pick one DNS approach:
 
-# Then on the Pi-hole:
-sudo tee /etc/dnsmasq.d/02-home-server.conf >/dev/null <<'EOF'
-# Wildcard DNS for the home-server k3s cluster.
-# Any *.home-server.local resolves to Traefik's LoadBalancer IP.
-address=/home-server.local/192.168.31.218
-EOF
-sudo pihole restartdns
-
-# Verify on the Pi-hole itself
-dig @127.0.0.1 authentik.home-server.local +short   # → 192.168.31.218
-exit
-```
-
-If you ever change the Traefik IP (rare, but happens when reinstalling k3s), update the `address=` line and rerun `sudo pihole restartdns`. The IPs are also documented in `CLAUDE.md` → Network topology.
-
-**Fallback** (no Pi-hole, or testing in isolation) — add `/etc/hosts` on the workstation:
-```bash
-echo "$TRAEFIK_IP authentik.home-server.local" | sudo tee -a /etc/hosts
-```
+- **Per-workstation `/etc/hosts`** (zero infrastructure, doesn't scale beyond one machine):
+  ```bash
+  echo "$TRAEFIK_IP authentik.home-server.local" | sudo tee -a /etc/hosts
+  ```
+- **LAN-wide DNS server with a wildcard for `*.home-server.local`** — set this up out of band on whatever resolver your LAN uses. Once configured, every device on the LAN reaches every app by name with no per-device setup.
 
 Open `http://authentik.home-server.local` in your browser. Log in with:
 - Username: `akadmin`
@@ -334,13 +317,8 @@ A 302 to an Authentik flow means: Traefik → Authentik server → Postgres → 
 - **Add a new app:** create `apps/<name>/application.yaml`, commit, push. The `apps` root picks it up via recursive scan.
 - **Add a new operator/controller:** same shape under `infrastructure/<name>/`. If it pulls from a new Helm repo, add the repo URL to `bootstrap/projects/infrastructure.yaml` and **re-apply that file manually** — AppProjects aren't reconciled by ArgoCD yet.
 - **Add a new credential:** generate the value, seal it with `kubeseal`, commit the `.sealedsecret.yaml` next to the app that consumes it.
-- **Expose a new app via Traefik:** in the app's chart values (or its own Ingress manifest), set `ingressClassName: traefik` and a hostname matching `<app>.home-server.local`. Then on your workstation:
-  ```bash
-  TRAEFIK_IP=$(kubectl get svc -n kube-system traefik \
-    -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-  echo "$TRAEFIK_IP <app>.home-server.local" | sudo tee -a /etc/hosts
-  ```
-  Then browse to `http://<app>.home-server.local`. No AppProject change needed — `Ingress` is a namespaced resource and is allowed by default.
+- **Expose a new HTTP app via Traefik:** in the app's chart values (or its own `Ingress` manifest), set `ingressClassName: traefik` and a hostname matching `<app>.home-server.local`. Browse to `http://<app>.home-server.local`. Pi-hole's wildcard handles DNS; no AppProject change needed (Ingress is namespaced).
+- **Expose a TCP service (database, broker, etc.) to the LAN:** add a `Service` of `type: LoadBalancer` selecting the target pods. Example: `apps/postgres/overlays/home-server/postgres-rw-external.yaml`. The same Pi-hole wildcard resolves any `<service>.home-server.local` to the cluster IP — connect with `host:<port>` in your client (e.g. `psql -h postgres.home-server.local -p 5432`). Don't modify operator-managed Services; always add a new one alongside.
 - **Pause GitOps temporarily:** disable auto-sync on a specific Application in the UI. Re-enable when done. If you make changes by hand during the pause, commit them — `selfHeal: true` reverts manual edits on the next reconciliation loop.
 
 ## Troubleshooting
@@ -404,7 +382,7 @@ Fix: `rm` the empty file, re-run with correct flags, verify `wc -l <file>` is no
 ## What this README does NOT cover
 
 - **TLS.** Traefik serves HTTP only. No cert-manager, no Let's Encrypt. Browser shows a "not secure" warning. A future lesson will add cert-manager + a local CA (or Let's Encrypt staging) for `*.home-server.local`.
-- **Real DNS.** Hostnames resolve only via per-workstation `/etc/hosts` entries. A homelab DNS server (Pi-hole, AdGuard Home, dnsmasq) would let every device on the LAN reach apps by name without manual `/etc/hosts` edits.
+- **DNS provisioning.** This repo only configures Ingress on the cluster. How `*.home-server.local` resolves is up to you (workstation `/etc/hosts`, LAN-wide DNS server, etc.).
 - **Backups.** CNPG can back up to S3-compatible storage; not configured here.
 - **Monitoring.** No Prometheus, Grafana, or alerting. `monitoring.enablePodMonitor: false` in `apps/postgres/base/cluster.yaml`.
 - **Storage HA.** `local-path` is single-node only. Node loss = data loss.

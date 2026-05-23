@@ -37,23 +37,25 @@ Current state:
 
 k3s ships Traefik in `kube-system` as the default ingress controller (LoadBalancer service `kube-system/traefik`). HTTP-only for now — no TLS, no cert-manager.
 
-**Network topology:**
-- Pi-hole DNS server: `192.168.31.57` (Raspberry Pi, separate host) — authoritative for `home-server.local`
-- Traefik LoadBalancer: `192.168.31.218` (k3s cluster) — receives all `*.home-server.local` traffic
-- LAN devices must use `192.168.31.57` as DNS (typically pushed via DHCP at the router)
+**Cluster ingress IP:** `192.168.31.218` — the external IP of the Traefik LoadBalancer service (`kube-system/traefik`). Verify with:
+```bash
+kubectl get svc -n kube-system traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+```
+All `*.home-server.local` traffic terminates here and Traefik routes by Host header.
 
-**Hostname convention:** `<app>.home-server.local` for any app that needs browser access. DNS is resolved by the Pi-hole via a dnsmasq wildcard (`address=/home-server.local/192.168.31.218` in `/etc/dnsmasq.d/02-home-server.conf` on the Pi-hole box). Every device using Pi-hole as DNS resolves `*.home-server.local` automatically — no per-device `/etc/hosts` edits.
+**Hostname convention:** `<app>.home-server.local` for any app that needs browser access. The cluster expects clients to resolve these names to `192.168.31.218` — set up however you prefer (LAN DNS server with a wildcard, per-workstation `/etc/hosts` entry, etc.). DNS provisioning is out of scope for this repo; the cluster only owns the Ingress configuration.
 
-If Pi-hole is unreachable or you're on a non-Pi-hole network, fall back to a workstation `/etc/hosts` entry: `<traefik-ip> <app>.home-server.local`.
+**Gotcha:** `.local` is reserved by mDNS. Works fine on Linux without Avahi; Apple devices (macOS/iOS) will likely fail to resolve via unicast DNS. If cross-device support becomes necessary, migrate the wildcard scheme to `.lan` or `.internal` (RFC 8375) — requires updating the chart values in every overlay and any external DNS records.
 
-**Gotcha:** `.local` is reserved by mDNS. Works fine on Linux without Avahi; Apple devices (macOS/iOS) will likely fail to resolve via unicast DNS. If cross-device support becomes necessary, migrate the wildcard to `.lan` or `.internal` (RFC 8375).
+**To expose a new HTTP app:**
+1. In the app's chart values (or `Ingress` manifest), set `ingressClassName: traefik` and `hosts: [<app>.home-server.local]`.
+2. Browse to `http://<app>.home-server.local` — Pi-hole resolves it, Traefik routes by Host header.
 
-**To expose a new app:**
-1. In the app's chart values (or Ingress manifest), set `ingressClassName: traefik` and `hosts: [<app>.home-server.local]`.
-2. Add `<traefik-external-ip> <app>.home-server.local` to your workstation's `/etc/hosts`.
-3. Browse to `http://<app>.home-server.local`.
+No need to touch the AppProject — `Ingress` is namespaced, allowed by `apps`' `namespaceResourceWhitelist: '*'`.
 
-No need to touch the AppProject — Ingress is namespaced, allowed by `apps`' `namespaceResourceWhitelist: '*'`.
+**To expose a TCP service (e.g. Postgres):** Traefik doesn't handle non-HTTP by default. Use a `Service` of `type: LoadBalancer` — k3s's klipper-lb assigns it the same node IP as Traefik, but on whatever port you declare. Example: `apps/postgres/overlays/home-server/postgres-rw-external.yaml` exposes the CNPG primary on `5432`. Pi-hole's wildcard means `postgres.home-server.local:5432` resolves to the right IP automatically — no separate DNS record needed.
+
+Don't modify operator-managed services. Always create a *new* Service that selects the same pods. CNPG owns `postgres-rw`/`postgres-ro`/`postgres-r` (ClusterIP); we add `postgres-rw-external` (LoadBalancer) alongside.
 
 ## Sync ordering
 
