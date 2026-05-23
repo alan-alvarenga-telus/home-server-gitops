@@ -5,6 +5,10 @@ metadata:
   namespace: registry
 spec:
   ingressClassName: traefik
+  tls:
+    - hosts:
+        - registry.home-server.local
+      secretName: registry-tls
   rules:
     - host: registry.home-server.local
       http:

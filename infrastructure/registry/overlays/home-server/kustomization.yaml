@@ -5,3 +5,4 @@ resources:
   - namespace.yaml
   - ../../base
   - registry-auth.sealedsecret.yaml
+  - registry-tls.sealedsecret.yaml
