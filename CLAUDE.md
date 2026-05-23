@@ -111,6 +111,20 @@ ArgoCD provides three ordering mechanisms; pick the right one for the right prob
 - The sealed-secrets controller's master key lives in `kube-system` (selector: `sealedsecrets.bitnami.com/sealed-secrets-key`). It's the only thing that can decrypt SealedSecrets in this repo — backed up to the owner's password manager. Restoration procedure in `README.md`.
 - The sealed-secrets Helm chart sets `fullnameOverride: sealed-secrets-controller` so the deployment/service names match `kubeseal`'s compiled-in defaults (`sealed-secrets-controller` in `kube-system`). Without this, every `kubeseal` invocation needs `--controller-name=sealed-secrets --controller-namespace=kube-system` flags. Don't remove the override.
 - Storage class is `local-path` (k3s built-in). Single-node — no replication, no HA yet.
+- The Postgres cluster has `enableSuperuserAccess: true` so the `postgres` superuser can connect remotely via the LoadBalancer for admin tasks (CREATE DATABASE, CREATE EXTENSION). CNPG defaults this to `false` for safety; we override because the cluster is LAN-only and the password is strong. Application workloads must still use per-app accounts (`authentik`, etc.), not the superuser.
+
+## Adding a database for a new app
+
+Use CNPG's declarative primitives — never manual `psql` against the cluster for things git should own.
+
+1. Generate a password (`openssl rand -base64 24 | tr -d '/+=' | head -c 32`) and save to your password manager.
+2. Seal it into the **postgres namespace** as `postgres-<appname>.sealedsecret.yaml` under `apps/postgres/overlays/home-server/`. Type `kubernetes.io/basic-auth`; keys `username` + `password`.
+3. Add a `managed.roles[]` entry to `apps/postgres/base/cluster.yaml` referencing the SealedSecret name. Set `login: true` and `ensure: present`. Don't grant `superuser`/`createdb`/`createrole` unless the app actually needs them.
+4. Add a `Database` CR under `apps/postgres/base/databases/<appname>.yaml`, `owner: <appname>`, `cluster.name: postgres`, `ensure: present`. Add it to `apps/postgres/base/kustomization.yaml` resources list.
+5. Seal a *second* SealedSecret in the consuming app's namespace with the same password formatted for that app's env (`DATABASE_URL`, `<APP>_DB_PASSWORD`, etc.) Two SealedSecrets, one password — the price of namespace isolation. If this duplication starts to hurt, install Reflector to mirror Secrets across namespaces; until then, manual is fine.
+6. Commit. CNPG reconciles: creates/alters the role with the right password, then creates the database. The new app picks up its credential from its own namespace Secret.
+
+**Never** manually `CREATE USER` or `CREATE DATABASE` against the cluster from psql — git becomes the lying source of truth, and the next cluster rebuild loses everything.
 
 ## Repo URL
 
