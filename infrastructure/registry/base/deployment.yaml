@@ -49,11 +49,8 @@ spec:
               cpu: 500m
           readinessProbe:
             httpGet:
-              path: /v2/
+              path: /
               port: registry
-              httpHeaders:
-                - name: Authorization
-                  value: "Basic dW5hdXRoZW50aWNhdGVk"   # base64("unauthenticated")
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
