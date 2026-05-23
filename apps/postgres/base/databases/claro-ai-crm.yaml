@@ -1,0 +1,11 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: claro-ai-crm
+  namespace: postgres
+spec:
+  name: claro-ai-crm
+  owner: claro-ai-crm
+  cluster:
+    name: postgres
+  ensure: present

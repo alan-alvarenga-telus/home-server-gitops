@@ -19,6 +19,7 @@ bootstrap/                 # kubectl apply, manually, after ArgoCD is installed
 infrastructure/            # Platform layer (operators, controllers, CRDs)
   cloudnative-pg/          # Postgres operator (Helm)
   sealed-secrets/          # Bitnami sealed-secrets controller (Helm)
+  registry/                # Private Docker registry. Raw manifests, base/+overlay.
 
 apps/                      # Workload layer
   postgres/                # CNPG Cluster CR. Kustomize base/overlay.
@@ -52,7 +53,7 @@ Two `AppProject`s scope what each layer can do. The `apps` project allows **only
 
 ## Bootstrap from zero
 
-Nine tiers, manual through Tier 7, GitOps from Tier 8 forward. Each tier ends with a verification you can run before moving on.
+Ten tiers, manual through Tier 8, GitOps from Tier 9 forward. Each tier ends with a verification you can run before moving on.
 
 ### Tier 0: Install k3s
 
@@ -277,7 +278,60 @@ Open `http://authentik.home-server.local` in your browser. Log in with:
 
 Note: HTTP only, no TLS yet. Cert-manager + Let's Encrypt is a future improvement.
 
-### Tier 8: ArgoCD reconciles everything else
+### Tier 8: Private Docker registry — workstation + k3s host config
+
+ArgoCD has already deployed the registry to the cluster (`infrastructure/registry/`). Two pieces of host-level config make it actually usable for build/push/deploy. **Each piece is a one-time setup per machine** and lives outside this repo — it's host state, not cluster state.
+
+**Workstation (where you run `docker build`):** add the registry hostname to Docker's `insecure-registries`. The registry serves plain HTTP; without this Docker refuses to talk to it.
+
+```bash
+# Linux / Docker Engine
+sudo tee /etc/docker/daemon.json >/dev/null <<'EOF'
+{
+  "insecure-registries": ["registry.home-server.local"]
+}
+EOF
+sudo systemctl restart docker
+```
+
+Docker Desktop: Settings → Docker Engine, paste the same JSON, Apply & Restart.
+
+**k3s host (where the cluster pulls images from):** add `/etc/rancher/k3s/registries.yaml` with the endpoint AND the registry credentials. Containerd will read this file on every pull, so any pod referencing `registry.home-server.local/...` images authenticates **without** needing `imagePullSecrets` in the manifest.
+
+```bash
+# On the k3s host. Replace <user>/<pass> with the credentials you saved when
+# generating the registry-auth SealedSecret.
+sudo tee /etc/rancher/k3s/registries.yaml >/dev/null <<'EOF'
+mirrors:
+  "registry.home-server.local":
+    endpoint:
+      - "http://registry.home-server.local"
+configs:
+  "registry.home-server.local":
+    auth:
+      username: <user>
+      password: <pass>
+    tls:
+      insecure_skip_verify: true
+EOF
+sudo systemctl restart k3s
+```
+
+**Verify the loop:**
+```bash
+# Login + push from workstation
+docker login registry.home-server.local            # creds from password manager
+docker pull alpine:latest
+docker tag alpine:latest registry.home-server.local/test/alpine:latest
+docker push registry.home-server.local/test/alpine:latest
+
+# Confirm the cluster can pull it
+kubectl run smoketest --rm -it --image=registry.home-server.local/test/alpine:latest \
+  --restart=Never -- echo hello
+# Expected output: hello
+```
+
+### Tier 9: ArgoCD reconciles everything else
 
 You're done with manual steps. Future changes flow through git:
 
@@ -318,7 +372,13 @@ A 302 to an Authentik flow means: Traefik → Authentik server → Postgres → 
 - **Add a new operator/controller:** same shape under `infrastructure/<name>/`. If it pulls from a new Helm repo, add the repo URL to `bootstrap/projects/infrastructure.yaml` and **re-apply that file manually** — AppProjects aren't reconciled by ArgoCD yet.
 - **Add a new credential:** generate the value, seal it with `kubeseal`, commit the `.sealedsecret.yaml` next to the app that consumes it.
 - **Expose a new HTTP app via Traefik:** in the app's chart values (or its own `Ingress` manifest), set `ingressClassName: traefik` and a hostname matching `<app>.home-server.local`. Browse to `http://<app>.home-server.local`. Pi-hole's wildcard handles DNS; no AppProject change needed (Ingress is namespaced).
-- **Expose a TCP service (database, broker, etc.) to the LAN:** add a `Service` of `type: LoadBalancer` selecting the target pods. Example: `apps/postgres/overlays/home-server/postgres-rw-external.yaml`. The same Pi-hole wildcard resolves any `<service>.home-server.local` to the cluster IP — connect with `host:<port>` in your client (e.g. `psql -h postgres.home-server.local -p 5432`). Don't modify operator-managed Services; always add a new one alongside.
+- **Expose a TCP service (database, broker, etc.) to the LAN:** add a `Service` of `type: LoadBalancer` selecting the target pods. Example: `apps/postgres/overlays/home-server/postgres-rw-external.yaml`. The same wildcard hostname `<service>.home-server.local` resolves to the cluster IP — connect with `host:<port>` in your client (e.g. `psql -h postgres.home-server.local -p 5432`). Don't modify operator-managed Services; always add a new one alongside.
+- **Build and deploy a custom image:** build it locally and push to the in-cluster registry, then reference by tag in any Deployment manifest:
+  ```bash
+  docker build -t registry.home-server.local/myapp:v0.1.0 .
+  docker push registry.home-server.local/myapp:v0.1.0
+  ```
+  Then in your manifest: `image: registry.home-server.local/myapp:v0.1.0`. The k3s containerd authenticates to the registry automatically (see `/etc/rancher/k3s/registries.yaml` on the host), so no `imagePullSecrets` are needed in your Deployments. First-time setup requires per-workstation `/etc/docker/daemon.json` and per-host `/etc/rancher/k3s/registries.yaml` — see Tier 8 of the bootstrap.
 - **Pause GitOps temporarily:** disable auto-sync on a specific Application in the UI. Re-enable when done. If you make changes by hand during the pause, commit them — `selfHeal: true` reverts manual edits on the next reconciliation loop.
 
 ## Troubleshooting

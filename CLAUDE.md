@@ -113,6 +113,20 @@ ArgoCD provides three ordering mechanisms; pick the right one for the right prob
 - Storage class is `local-path` (k3s built-in). Single-node — no replication, no HA yet.
 - The Postgres cluster has `enableSuperuserAccess: true` so the `postgres` superuser can connect remotely via the LoadBalancer for admin tasks (CREATE DATABASE, CREATE EXTENSION). CNPG defaults this to `false` for safety; we override because the cluster is LAN-only and the password is strong. Application workloads must still use per-app accounts (`authentik`, etc.), not the superuser.
 
+## Private Docker registry
+
+`infrastructure/registry/` runs `registry:2` exposed at `http://registry.home-server.local` via Traefik. htpasswd auth, sealed creds in `infrastructure/registry/overlays/home-server/registry-auth.sealedsecret.yaml`.
+
+**Two pieces of host-level state live outside this repo** (one-time setup, documented in `README.md`):
+- Workstation: `/etc/docker/daemon.json` lists `registry.home-server.local` in `insecure-registries` (the registry serves plain HTTP).
+- k3s host: `/etc/rancher/k3s/registries.yaml` has both the HTTP endpoint AND embedded `auth.username` / `auth.password` so containerd pulls authenticated automatically — **no per-namespace imagePullSecrets needed.**
+
+**Build → push → deploy workflow:** `docker build -t registry.home-server.local/<app>:<tag>` → `docker push registry.home-server.local/<app>:<tag>` → reference `image: registry.home-server.local/<app>:<tag>` in any Deployment manifest under `apps/`. The cluster pulls via the containerd config.
+
+**Storage**: 20 GiB PVC on `local-path`. Inspect usage with `kubectl exec -n registry deploy/registry -- du -sh /var/lib/registry`. When it fills up, bump the PVC size and let CSI resize.
+
+**Image deletion**: `REGISTRY_STORAGE_DELETE_ENABLED=true` is set, so `curl -X DELETE` against the v2 API works. The actual disk space is reclaimed only after running `registry garbage-collect` — schedule a CronJob if this becomes a problem.
+
 ## Adding a database for a new app
 
 Use CNPG's declarative primitives — never manual `psql` against the cluster for things git should own.

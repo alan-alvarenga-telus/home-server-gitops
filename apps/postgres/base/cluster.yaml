@@ -43,6 +43,13 @@ spec:
     limits:
       memory: "512Mi"
       cpu: "500m"
+  managed:
+    roles:
+      - name: claro-ai-crm
+        ensure: present
+        login: true
+        passwordSecret:
+          name: postgres-claro-ai-crm
 
   monitoring:
     enablePodMonitor: false # set true when you add Prometheus later
