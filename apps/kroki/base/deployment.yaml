@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kroki
+  namespace: kroki
+  labels:
+    app: kroki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kroki
+  template:
+    metadata:
+      labels:
+        app: kroki
+    spec:
+      containers:
+        - name: kroki
+          image: yuzutech/kroki:0.26.0
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+            limits:
+              memory: 512Mi
+              cpu: 500m
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
