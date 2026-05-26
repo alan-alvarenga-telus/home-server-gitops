@@ -3,6 +3,13 @@ kind: Ingress
 metadata:
   name: registry
   namespace: registry
+  annotations:
+    # Lock the router to Traefik's TLS entrypoint only. Without this, the
+    # `tls:` section below adds HTTPS but leaves plain HTTP on :80 also
+    # serving the registry API -- a `docker login` that fell back to HTTP
+    # would leak htpasswd creds in cleartext.
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
   tls:
