@@ -6,7 +6,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: kroki.home-server.local
+    - host: kroki.home-server.lan
       http:
         paths:
           - path: /

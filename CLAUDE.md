@@ -31,7 +31,7 @@ Current state:
 - `infrastructure/cloudnative-pg/` — CNPG operator, Helm chart from `cloudnative-pg.github.io/charts`, namespace `cnpg-system`.
 - `infrastructure/sealed-secrets/` — Bitnami sealed-secrets controller in `kube-system` (renamed to `sealed-secrets-controller` so `kubeseal` defaults work).
 - `apps/postgres/` — a `postgresql.cnpg.io/v1` `Cluster` in namespace `postgres`, backing Authentik. Kustomize layout: `base/` + `overlays/home-server/`.
-- `apps/authentik/` — SSO/identity provider, Helm chart from `charts.goauthentik.io`, namespace `authentik`. Multi-source Application (chart + values ref + supplementary kustomize overlay containing the SealedSecret, a bundled redis Deployment/Service, and an explicit Namespace). Exposed via Traefik at `authentik.home-server.local`.
+- `apps/authentik/` — SSO/identity provider, Helm chart from `charts.goauthentik.io`, namespace `authentik`. Multi-source Application (chart + values ref + supplementary kustomize overlay containing the SealedSecret, a bundled redis Deployment/Service, and an explicit Namespace). Exposed via Traefik at `authentik.home-server.lan`.
 
 ## Hostname & Ingress
 
@@ -41,19 +41,19 @@ k3s ships Traefik in `kube-system` as the default ingress controller (LoadBalanc
 ```bash
 kubectl get svc -n kube-system traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 ```
-All `*.home-server.local` traffic terminates here and Traefik routes by Host header.
+All `*.home-server.lan` traffic terminates here and Traefik routes by Host header.
 
-**Hostname convention:** `<app>.home-server.local` for any app that needs browser access. The cluster expects clients to resolve these names to `192.168.31.218` — set up however you prefer (LAN DNS server with a wildcard, per-workstation `/etc/hosts` entry, etc.). DNS provisioning is out of scope for this repo; the cluster only owns the Ingress configuration.
+**Hostname convention:** `<app>.home-server.lan` for any app that needs browser access. The cluster expects clients to resolve these names to `192.168.31.218` — set up however you prefer (LAN DNS server with a wildcard, per-workstation `/etc/hosts` entry, etc.). DNS provisioning is out of scope for this repo; the cluster only owns the Ingress configuration.
 
-**Gotcha:** `.local` is reserved by mDNS. Works fine on Linux without Avahi; Apple devices (macOS/iOS) will likely fail to resolve via unicast DNS. If cross-device support becomes necessary, migrate the wildcard scheme to `.lan` or `.internal` (RFC 8375) — requires updating the chart values in every overlay and any external DNS records.
+**Why `.lan` and not `.local`:** `.local` is reserved by mDNS, which breaks unicast DNS resolution on Apple devices (macOS/iOS) unless Avahi is in the loop. We use `.lan` (common convention; not IANA-reserved but stable in practice) so any device on the LAN resolves names via the Pi-hole wildcard. `.internal` (RFC 8375 / ICANN-reserved 2024) is a stricter alternative if `.lan` ever causes friction.
 
 **To expose a new HTTP app:**
-1. In the app's chart values (or `Ingress` manifest), set `ingressClassName: traefik` and `hosts: [<app>.home-server.local]`.
-2. Browse to `http://<app>.home-server.local` — Pi-hole resolves it, Traefik routes by Host header.
+1. In the app's chart values (or `Ingress` manifest), set `ingressClassName: traefik` and `hosts: [<app>.home-server.lan]`.
+2. Browse to `http://<app>.home-server.lan` — Pi-hole resolves it, Traefik routes by Host header.
 
 No need to touch the AppProject — `Ingress` is namespaced, allowed by `apps`' `namespaceResourceWhitelist: '*'`.
 
-**To expose a TCP service (e.g. Postgres):** Traefik doesn't handle non-HTTP by default. Use a `Service` of `type: LoadBalancer` — k3s's klipper-lb assigns it the same node IP as Traefik, but on whatever port you declare. Example: `apps/postgres/overlays/home-server/postgres-rw-external.yaml` exposes the CNPG primary on `5432`. Pi-hole's wildcard means `postgres.home-server.local:5432` resolves to the right IP automatically — no separate DNS record needed.
+**To expose a TCP service (e.g. Postgres):** Traefik doesn't handle non-HTTP by default. Use a `Service` of `type: LoadBalancer` — k3s's klipper-lb assigns it the same node IP as Traefik, but on whatever port you declare. Example: `apps/postgres/overlays/home-server/postgres-rw-external.yaml` exposes the CNPG primary on `5432`. Pi-hole's wildcard means `postgres.home-server.lan:5432` resolves to the right IP automatically — no separate DNS record needed.
 
 Don't modify operator-managed services. Always create a *new* Service that selects the same pods. CNPG owns `postgres-rw`/`postgres-ro`/`postgres-r` (ClusterIP); we add `postgres-rw-external` (LoadBalancer) alongside.
 
@@ -115,13 +115,13 @@ ArgoCD provides three ordering mechanisms; pick the right one for the right prob
 
 ## Private Docker registry
 
-`infrastructure/registry/` runs `registry:2` exposed at `https://registry.home-server.local` via Traefik. htpasswd auth, sealed creds in `infrastructure/registry/overlays/home-server/registry-auth.sealedsecret.yaml`. TLS terminated by a self-signed cert (10-year validity, CN matches hostname) stored in `registry-tls.sealedsecret.yaml`; private key never leaves the cluster.
+`infrastructure/registry/` runs `registry:2` exposed at `https://registry.home-server.lan` via Traefik. htpasswd auth, sealed creds in `infrastructure/registry/overlays/home-server/registry-auth.sealedsecret.yaml`. TLS terminated by a self-signed cert (10-year validity, CN matches hostname) stored in `registry-tls.sealedsecret.yaml`; private key never leaves the cluster.
 
 **Two pieces of host-level state live outside this repo** (one-time setup, documented in `README.md`):
-- Workstation: the registry's CA cert at `/etc/docker/certs.d/registry.home-server.local/ca.crt`. Extract from cluster: `kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\.crt}' | base64 -d`. Docker auto-discovers it; no daemon restart needed.
+- Workstation: the registry's CA cert at `/etc/docker/certs.d/registry.home-server.lan/ca.crt`. Extract from cluster: `kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\.crt}' | base64 -d`. Docker auto-discovers it; no daemon restart needed.
 - k3s host: `/etc/rancher/k3s/registries.yaml` with `auth.username` / `auth.password` and `tls.ca_file` pointing to the same CA cert (also copied to the host). Containerd pulls authenticated automatically — **no per-namespace imagePullSecrets needed.**
 
-**Build → push → deploy workflow:** `docker build -t registry.home-server.local/<app>:<tag>` → `docker push registry.home-server.local/<app>:<tag>` → reference `image: registry.home-server.local/<app>:<tag>` in any Deployment manifest under `apps/`. The cluster pulls via the containerd config.
+**Build → push → deploy workflow:** `docker build -t registry.home-server.lan/<app>:<tag>` → `docker push registry.home-server.lan/<app>:<tag>` → reference `image: registry.home-server.lan/<app>:<tag>` in any Deployment manifest under `apps/`. The cluster pulls via the containerd config.
 
 **Storage**: 20 GiB PVC on `local-path`. Inspect usage with `kubectl exec -n registry deploy/registry -- du -sh /var/lib/registry`. When it fills up, bump the PVC size and let CSI resize.
 

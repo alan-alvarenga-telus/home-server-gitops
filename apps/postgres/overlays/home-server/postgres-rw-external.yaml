@@ -1,5 +1,5 @@
 # LoadBalancer Service exposing the CNPG primary on the LAN.
-# Pairs with the Pi-hole wildcard: postgres.home-server.local → klipper-lb → this Service.
+# Pairs with the Pi-hole wildcard: postgres.home-server.lan → klipper-lb → this Service.
 # This is a SEPARATE Service from CNPG's managed postgres-rw (ClusterIP) — we don't
 # touch CNPG's services because the operator owns them.
 apiVersion: v1
