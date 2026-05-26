@@ -27,8 +27,8 @@ postgresql:
   enabled: false
 
 # Single-node — no extra replicas, no anti-affinity.
-# Ingress exposes Authentik via Traefik (k3s default) at http://authentik.home-server.lan.
-# Workstation needs /etc/hosts: `<traefik-external-ip> authentik.home-server.lan`.
+# Ingress exposes Authentik via Traefik (k3s default) at http://authentik.internal.
+# Workstation needs /etc/hosts: `<traefik-external-ip> authentik.internal`.
 # See README "Hostname & Ingress" for the full setup.
 server:
   replicas: 1
@@ -36,7 +36,7 @@ server:
     enabled: true
     ingressClassName: traefik
     hosts:
-      - authentik.home-server.lan
+      - authentik.internal
     pathType: Prefix
 worker:
   replicas: 1

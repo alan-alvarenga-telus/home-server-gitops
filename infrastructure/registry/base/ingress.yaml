@@ -7,10 +7,10 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - registry.home-server.lan
+        - registry.internal
       secretName: registry-tls
   rules:
-    - host: registry.home-server.lan
+    - host: registry.internal
       http:
         paths:
           - path: /

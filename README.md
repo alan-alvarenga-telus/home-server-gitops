@@ -255,7 +255,7 @@ kubectl get pods -n authentik
 
 ### Tier 7: Hostname & Ingress
 
-Apps are exposed at `http://<app>.home-server.lan` via Traefik (k3s's default ingress controller). The cluster requires DNS to resolve these names to Traefik's external IP. **How you provide DNS is your concern** — this repo only owns the Ingress configuration.
+Apps are exposed at `http://<app>.internal` via Traefik (k3s's default ingress controller). The cluster requires DNS to resolve these names to Traefik's external IP. **How you provide DNS is your concern** — this repo only owns the Ingress configuration.
 
 ```bash
 # Confirm Traefik's external IP (the value clients need to reach)
@@ -268,11 +268,11 @@ Pick one DNS approach:
 
 - **Per-workstation `/etc/hosts`** (zero infrastructure, doesn't scale beyond one machine):
   ```bash
-  echo "$TRAEFIK_IP authentik.home-server.lan" | sudo tee -a /etc/hosts
+  echo "$TRAEFIK_IP authentik.internal" | sudo tee -a /etc/hosts
   ```
-- **LAN-wide DNS server with a wildcard for `*.home-server.lan`** — set this up out of band on whatever resolver your LAN uses. Once configured, every device on the LAN reaches every app by name with no per-device setup.
+- **LAN-wide DNS server with a wildcard for `*.internal`** — set this up out of band on whatever resolver your LAN uses. Once configured, every device on the LAN reaches every app by name with no per-device setup.
 
-Open `http://authentik.home-server.lan` in your browser. Log in with:
+Open `http://authentik.internal` in your browser. Log in with:
 - Username: `akadmin`
 - Password: the `AK_BOOTSTRAP_PASSWORD` you saved in Tier 5
 
@@ -285,14 +285,14 @@ ArgoCD has already deployed the registry to the cluster (`infrastructure/registr
 **Workstation (where you run `docker build`):** install the registry's CA cert in Docker's per-host trust directory. Docker auto-discovers it on each request — no daemon restart needed.
 
 ```bash
-sudo mkdir -p /etc/docker/certs.d/registry.home-server.lan
+sudo mkdir -p /etc/docker/certs.d/registry.internal
 kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\.crt}' | base64 -d | \
-  sudo tee /etc/docker/certs.d/registry.home-server.lan/ca.crt >/dev/null
+  sudo tee /etc/docker/certs.d/registry.internal/ca.crt >/dev/null
 ```
 
 Docker Desktop on macOS/Windows: see [Docker's certs.d docs](https://docs.docker.com/engine/security/certificates/) — the VM has its own `/etc/docker/certs.d/` accessible via Settings.
 
-**k3s host (where the cluster pulls images from):** copy the same CA cert to the host and tell containerd about it in `/etc/rancher/k3s/registries.yaml`. Containerd reads this on every pull, so any pod referencing `registry.home-server.lan/...` images authenticates **without** needing `imagePullSecrets` in the manifest.
+**k3s host (where the cluster pulls images from):** copy the same CA cert to the host and tell containerd about it in `/etc/rancher/k3s/registries.yaml`. Containerd reads this on every pull, so any pod referencing `registry.internal/...` images authenticates **without** needing `imagePullSecrets` in the manifest.
 
 ```bash
 # Copy the cert to the host (run from a workstation with kubectl access)
@@ -304,7 +304,7 @@ kubectl get secret registry-tls -n registry -o jsonpath='{.data.tls\.crt}' | bas
 ssh <user>@<k3s-host>
 sudo tee /etc/rancher/k3s/registries.yaml >/dev/null <<'EOF'
 configs:
-  "registry.home-server.lan":
+  "registry.internal":
     auth:
       username: <user>
       password: <pass>
@@ -317,13 +317,13 @@ sudo systemctl restart k3s
 **Verify the loop:**
 ```bash
 # Login + push from workstation
-docker login registry.home-server.lan            # creds from password manager
+docker login registry.internal            # creds from password manager
 docker pull alpine:latest
-docker tag alpine:latest registry.home-server.lan/test/alpine:latest
-docker push registry.home-server.lan/test/alpine:latest
+docker tag alpine:latest registry.internal/test/alpine:latest
+docker push registry.internal/test/alpine:latest
 
 # Confirm the cluster can pull it
-kubectl run smoketest --rm -it --image=registry.home-server.lan/test/alpine:latest \
+kubectl run smoketest --rm -it --image=registry.internal/test/alpine:latest \
   --restart=Never -- echo hello
 # Expected output: hello
 ```
@@ -357,7 +357,7 @@ A PostgreSQL version banner means: k3s → ArgoCD → CNPG operator → Cluster 
 **Authentik via Traefik** — exercises the ingress path:
 
 ```bash
-curl -sI http://authentik.home-server.lan | head -5
+curl -sI http://authentik.internal | head -5
 # Expected: HTTP/1.1 302 Found, Location: /if/flow/initial-setup/ (or /if/flow/default-authentication-flow/)
 ```
 
@@ -368,14 +368,14 @@ A 302 to an Authentik flow means: Traefik → Authentik server → Postgres → 
 - **Add a new app:** create `apps/<name>/application.yaml`, commit, push. The `apps` root picks it up via recursive scan.
 - **Add a new operator/controller:** same shape under `infrastructure/<name>/`. If it pulls from a new Helm repo, add the repo URL to `bootstrap/projects/infrastructure.yaml` and **re-apply that file manually** — AppProjects aren't reconciled by ArgoCD yet.
 - **Add a new credential:** generate the value, seal it with `kubeseal`, commit the `.sealedsecret.yaml` next to the app that consumes it.
-- **Expose a new HTTP app via Traefik:** in the app's chart values (or its own `Ingress` manifest), set `ingressClassName: traefik` and a hostname matching `<app>.home-server.lan`. Browse to `http://<app>.home-server.lan`. Pi-hole's wildcard handles DNS; no AppProject change needed (Ingress is namespaced).
-- **Expose a TCP service (database, broker, etc.) to the LAN:** add a `Service` of `type: LoadBalancer` selecting the target pods. Example: `apps/postgres/overlays/home-server/postgres-rw-external.yaml`. The same wildcard hostname `<service>.home-server.lan` resolves to the cluster IP — connect with `host:<port>` in your client (e.g. `psql -h postgres.home-server.lan -p 5432`). Don't modify operator-managed Services; always add a new one alongside.
+- **Expose a new HTTP app via Traefik:** in the app's chart values (or its own `Ingress` manifest), set `ingressClassName: traefik` and a hostname matching `<app>.internal`. Browse to `http://<app>.internal`. Pi-hole's wildcard handles DNS; no AppProject change needed (Ingress is namespaced).
+- **Expose a TCP service (database, broker, etc.) to the LAN:** add a `Service` of `type: LoadBalancer` selecting the target pods. Example: `apps/postgres/overlays/home-server/postgres-rw-external.yaml`. The same wildcard hostname `<service>.internal` resolves to the cluster IP — connect with `host:<port>` in your client (e.g. `psql -h postgres.internal -p 5432`). Don't modify operator-managed Services; always add a new one alongside.
 - **Build and deploy a custom image:** build it locally and push to the in-cluster registry, then reference by tag in any Deployment manifest:
   ```bash
-  docker build -t registry.home-server.lan/myapp:v0.1.0 .
-  docker push registry.home-server.lan/myapp:v0.1.0
+  docker build -t registry.internal/myapp:v0.1.0 .
+  docker push registry.internal/myapp:v0.1.0
   ```
-  Then in your manifest: `image: registry.home-server.lan/myapp:v0.1.0`. The k3s containerd authenticates to the registry automatically (see `/etc/rancher/k3s/registries.yaml` on the host), so no `imagePullSecrets` are needed in your Deployments. First-time setup requires per-workstation `/etc/docker/daemon.json` and per-host `/etc/rancher/k3s/registries.yaml` — see Tier 8 of the bootstrap.
+  Then in your manifest: `image: registry.internal/myapp:v0.1.0`. The k3s containerd authenticates to the registry automatically (see `/etc/rancher/k3s/registries.yaml` on the host), so no `imagePullSecrets` are needed in your Deployments. First-time setup requires per-workstation `/etc/docker/daemon.json` and per-host `/etc/rancher/k3s/registries.yaml` — see Tier 8 of the bootstrap.
 - **Pause GitOps temporarily:** disable auto-sync on a specific Application in the UI. Re-enable when done. If you make changes by hand during the pause, commit them — `selfHeal: true` reverts manual edits on the next reconciliation loop.
 
 ## Troubleshooting
@@ -438,8 +438,8 @@ Fix: `rm` the empty file, re-run with correct flags, verify `wc -l <file>` is no
 
 ## What this README does NOT cover
 
-- **TLS.** Traefik serves HTTP only. No cert-manager, no Let's Encrypt. Browser shows a "not secure" warning. A future lesson will add cert-manager + a local CA (or Let's Encrypt staging) for `*.home-server.lan`.
-- **DNS provisioning.** This repo only configures Ingress on the cluster. How `*.home-server.lan` resolves is up to you (workstation `/etc/hosts`, LAN-wide DNS server, etc.).
+- **TLS.** Traefik serves HTTP only. No cert-manager, no Let's Encrypt. Browser shows a "not secure" warning. A future lesson will add cert-manager + a local CA (or Let's Encrypt staging) for `*.internal`.
+- **DNS provisioning.** This repo only configures Ingress on the cluster. How `*.internal` resolves is up to you (workstation `/etc/hosts`, LAN-wide DNS server, etc.).
 - **Backups.** CNPG can back up to S3-compatible storage; not configured here.
 - **Monitoring.** No Prometheus, Grafana, or alerting. `monitoring.enablePodMonitor: false` in `apps/postgres/base/cluster.yaml`.
 - **Storage HA.** `local-path` is single-node only. Node loss = data loss.
