@@ -29,6 +29,11 @@ spec:
               value: kroki-bpmn
             - name: KROKI_EXCALIDRAW_HOST
               value: kroki-excalidraw
+            # UNSAFE enables `theme <url>` fetching (e.g. static.structurizr.com
+            # cloud icon themes). Scoped to Structurizr only — PlantUML/Mermaid
+            # stay in SECURE mode. Tolerable on this single-tenant LAN cluster.
+            - name: KROKI_STRUCTURIZR_SAFE_MODE
+              value: UNSAFE
           resources:
             requests:
               memory: 256Mi
