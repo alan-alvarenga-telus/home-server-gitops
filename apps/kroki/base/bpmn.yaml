@@ -21,6 +21,10 @@ spec:
           ports:
             - name: http
               containerPort: 8003
+          securityContext:
+            capabilities:
+              add:
+                - SYS_ADMIN
           resources:
             requests:
               memory: 128Mi
@@ -29,14 +33,12 @@ spec:
               memory: 512Mi
               cpu: 500m
           readinessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: http
             initialDelaySeconds: 30
             periodSeconds: 30
