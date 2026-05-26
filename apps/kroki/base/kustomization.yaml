@@ -5,3 +5,6 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  - mermaid.yaml
+  - bpmn.yaml
+  - excalidraw.yaml

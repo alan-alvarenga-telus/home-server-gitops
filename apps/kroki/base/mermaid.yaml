@@ -1,45 +1,38 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kroki
+  name: kroki-mermaid
   namespace: kroki
   labels:
-    app: kroki
+    app: kroki-mermaid
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: kroki
+      app: kroki-mermaid
   template:
     metadata:
       labels:
-        app: kroki
+        app: kroki-mermaid
     spec:
       containers:
-        - name: kroki
-          image: yuzutech/kroki:latest
+        - name: mermaid
+          image: yuzutech/kroki-mermaid:latest
           ports:
             - name: http
-              containerPort: 8000
-          env:
-            - name: KROKI_MERMAID_HOST
-              value: kroki-mermaid
-            - name: KROKI_BPMN_HOST
-              value: kroki-bpmn
-            - name: KROKI_EXCALIDRAW_HOST
-              value: kroki-excalidraw
+              containerPort: 8002
           resources:
             requests:
               memory: 256Mi
               cpu: 100m
             limits:
-              memory: 512Mi
+              memory: 1Gi
               cpu: 500m
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             httpGet:
@@ -47,3 +40,19 @@ spec:
               port: http
             initialDelaySeconds: 30
             periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kroki-mermaid
+  namespace: kroki
+  labels:
+    app: kroki-mermaid
+spec:
+  type: ClusterIP
+  selector:
+    app: kroki-mermaid
+  ports:
+    - name: http
+      port: 8002
+      targetPort: http
