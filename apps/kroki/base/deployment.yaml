@@ -15,6 +15,7 @@ spec:
       labels:
         app: kroki
     spec:
+      enableServiceLinks: false
       containers:
         - name: kroki
           image: yuzutech/kroki:latest
