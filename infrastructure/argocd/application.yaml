@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  source:
+    repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+    targetRevision: HEAD
+    path: infrastructure/argocd/overlays/home-server
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Replace=true: full kubectl-replace semantics on each sync. Needed because
+      # the pre-existing argocd-ingress was previously kubectl-applied with
+      # different fields (TLS section, websecure entrypoint annotations) that
+      # ServerSideApply would have left orphaned. Replace drops everything not
+      # in this repo's manifest.
+      - Replace=true
