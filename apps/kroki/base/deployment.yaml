@@ -23,6 +23,13 @@ spec:
             - name: http
               containerPort: 8000
           env:
+            # Vert.x rejects request lines longer than this with 414. Default is
+            # 4000 — too small for large PlantUML diagrams the jebbs extension
+            # deflate-encodes into the GET URL. Raise the ceiling (64 KB) for our
+            # single-tenant LAN box; POST would remove the limit entirely but the
+            # extension only speaks GET.
+            - name: KROKI_MAX_URI_LENGTH
+              value: "64000"
             - name: KROKI_MERMAID_HOST
               value: kroki-mermaid
             - name: KROKI_BPMN_HOST
