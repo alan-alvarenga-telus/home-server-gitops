@@ -5,3 +5,5 @@ resources:
   - cluster.yaml
   - databases/claro-ai-crm.yaml
   - databases/n8n.yaml
+  - databases/temporal.yaml
+  - databases/temporal-visibility.yaml

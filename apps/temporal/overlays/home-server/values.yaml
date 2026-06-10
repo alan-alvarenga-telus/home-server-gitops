@@ -1,0 +1,92 @@
+# Helm values for the official Temporal server chart on the home-server cluster.
+# Consumed via the $values ref by apps/temporal/application.yaml.
+#
+# This chart deploys ONLY the Temporal server (frontend/history/matching/worker)
+# plus the web UI. It ships no database — we point it at the managed CNPG
+# Postgres cluster (apps/postgres) for both the main store and visibility.
+
+server:
+  config:
+    persistence:
+      defaultStore: default
+      visibilityStore: visibility
+      # IRREVERSIBLE: numHistoryShards cannot be changed after the first deploy
+      # without wiping persistence. 512 is the chart default; keep it forever.
+      numHistoryShards: 512
+      datastores:
+        # Main event store. createDatabase:false because CNPG owns database
+        # creation declaratively and the temporal role has no createdb grant.
+        # manageSchema:true lets the chart's PreSync Job run temporal-sql-tool
+        # setup-schema/update-schema against the v12 postgres schema, building
+        # Temporal's tables inside the CNPG-created database.
+        default:
+          sql:
+            pluginName: postgres12_pgx
+            databaseName: temporal
+            connectAddr: "postgres-rw.postgres.svc.cluster.local:5432"
+            connectProtocol: "tcp"
+            user: temporal
+            existingSecret: temporal-db   # Helm-only field; stripped before rendering, wires SQL_PASSWORD
+            secretKey: password
+            createDatabase: false
+            manageSchema: true
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: "1h"
+        # Visibility store on Postgres — advanced visibility (the searchable
+        # workflow list in the UI) without a separate Elasticsearch deployment.
+        visibility:
+          sql:
+            pluginName: postgres12_pgx
+            databaseName: temporal_visibility
+            connectAddr: "postgres-rw.postgres.svc.cluster.local:5432"
+            connectProtocol: "tcp"
+            user: temporal
+            existingSecret: temporal-db
+            secretKey: password
+            createDatabase: false
+            manageSchema: true
+            maxConns: 10
+            maxIdleConns: 10
+            maxConnLifetime: "1h"
+    # Auto-register the "default" Temporal namespace so SDK clients have somewhere
+    # to run workflows immediately. Created via a post-install Job (Helm hook).
+    namespaces:
+      create: true
+      namespace:
+        - name: default
+          retention: 3d
+  # Modest limits for a single node. Applied to each of the four server roles
+  # (frontend/history/matching/worker), so ~4x the requests in total.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Web UI. Exposed via Traefik at http://temporal.internal. The chart wires the
+# UI's TEMPORAL_ADDRESS to the in-cluster frontend service automatically.
+# hosts entries are "<host>/<path>" strings (chart-specific format), not the
+# host/paths object other charts use.
+web:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  ingress:
+    enabled: true
+    className: traefik
+    hosts:
+      - "temporal.internal/"
+
+# Image-compatibility shims default to true for Temporal 1.29-era images. The
+# chart's appVersion is 1.31.0, so the chart itself instructs disabling both.
+shims:
+  dockerize: false
+  elasticsearchTool: false

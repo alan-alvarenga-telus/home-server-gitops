@@ -1,0 +1,9 @@
+# Explicit namespace so it lands before any namespaced RBAC the chart ships
+# (ServiceAccount/Role). sync-wave -1 applies it before everything else in this
+# Application, dodging ArgoCD's rbacReconcile-before-CreateNamespace race.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: temporal
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"

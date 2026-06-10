@@ -1,0 +1,14 @@
+# Temporal's visibility store. The Postgres database name uses an underscore
+# (temporal_visibility) but a Kubernetes object name cannot, so metadata.name
+# is hyphenated while spec.name carries the real database name.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: temporal-visibility
+  namespace: postgres
+spec:
+  name: temporal_visibility
+  owner: temporal
+  cluster:
+    name: postgres
+  ensure: present
