@@ -1,0 +1,11 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: temporal
+  namespace: postgres
+spec:
+  name: temporal
+  owner: temporal
+  cluster:
+    name: postgres
+  ensure: present
