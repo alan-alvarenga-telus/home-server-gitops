@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: temporal
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Wave 2: depends on the Postgres databases provisioned by apps/postgres
+    # (wave 1). The chart's schema-setup Job is a Helm pre-install/pre-upgrade
+    # hook, which ArgoCD runs as a PreSync hook; SkipDryRunOnMissingResource
+    # lets it tolerate the brief window before the CNPG databases exist.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: apps
+  sources:
+    - chart: temporal
+      repoURL: https://go.temporal.io/helm-charts
+      targetRevision: "*"
+      helm:
+        releaseName: temporal
+        valueFiles:
+          - $values/apps/temporal/overlays/home-server/values.yaml
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      ref: values
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      path: apps/temporal/overlays/home-server
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: temporal
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true

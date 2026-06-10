@@ -1,0 +1,24 @@
+# Exposes the Temporal frontend's gRPC endpoint (7233) on the LAN so an SDK
+# Worker and the `temporal` CLI can run from your laptop against the cluster.
+#
+# Like postgres-rw-external, this is a SEPARATE Service that selects the same
+# pods the chart already manages — we never modify the chart's own ClusterIP
+# frontend Service. klipper-lb assigns it the node IP (same as Traefik), so
+# Pi-hole's *.internal wildcard makes temporal.internal:7233 resolve with no
+# extra DNS record. (The web UI uses the same hostname on :80 via Traefik.)
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-frontend-external
+  namespace: temporal
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/instance: temporal
+    app.kubernetes.io/component: frontend
+  ports:
+    - name: grpc-rpc
+      port: 7233
+      targetPort: 7233
+      protocol: TCP

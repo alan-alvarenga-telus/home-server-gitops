@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# values.yaml lives here but is NOT a Kubernetes resource — it's a Helm values
+# file consumed by the chart source via the $values ref. Do NOT list it.
+resources:
+  - namespace.yaml
+  - temporal-db.sealedsecret.yaml
+  - temporal-frontend-external.yaml
