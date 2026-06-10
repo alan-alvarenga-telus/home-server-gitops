@@ -36,12 +36,31 @@ main:
   # at Traefik, so N8N_SECURE_COOKIE must be false or the browser refuses the
   # auth cookie over HTTP and login loops. WEBHOOK_URL makes generated webhook
   # URLs resolve correctly on the LAN.
+  # NOTE: N8N_RUNNERS_ENABLED is intentionally absent — n8n 2.x enables task
+  # runners by default and logs a deprecation warning if the var is set.
   extraEnvVars:
     N8N_HOST: n8n.internal
     N8N_PROTOCOL: http
     WEBHOOK_URL: http://n8n.internal/
     N8N_SECURE_COOKIE: "false"
-    N8N_RUNNERS_ENABLED: "true"
+
+  # First-boot DB migrations run on n8n's single event loop and can block the
+  # HTTP server past the default liveness budget (3 x 10s, timeout 1s), so the
+  # pod gets SIGTERM'd (exit 143) before it ever becomes ready. The main
+  # deployment template has NO startupProbe knob, so we widen liveness instead:
+  # a 60s initial delay plus a higher failureThreshold covers the migration
+  # window. These scalars MERGE with the chart's default httpGet (path /healthz);
+  # we do not redefine the path.
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+  readinessProbe:
+    initialDelaySeconds: 20
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
 
 # Browser access via Traefik (k3s default ingress) at http://n8n.internal.
 # Workstation/Pi-hole must resolve n8n.internal to the Traefik LoadBalancer IP.
