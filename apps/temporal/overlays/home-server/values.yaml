@@ -90,3 +90,18 @@ web:
 shims:
   dockerize: false
   elasticsearchTool: false
+
+# Schema setup Job. By default the chart annotates it as a Helm
+# pre-install/pre-upgrade hook, which ArgoCD runs as a PreSync hook and BLOCKS
+# the rest of the sync until it completes. But the Job needs the temporal-db
+# Secret, which only materializes when the sealed-secrets controller unseals
+# the temporal-db SealedSecret during the normal Sync phase — which ArgoCD
+# won't reach while it's still waiting on the hook. Deadlock: the Job fails
+# with `secret "temporal-db" not found` forever.
+#
+# Disabling Helm hooks (the chart's documented setting for Flux/ArgoCD/etc.)
+# makes the Job a normal Sync-phase resource applied alongside the SealedSecret.
+# The Job's backoffLimit (100) tolerates the brief window until the controller
+# unseals the Secret, then setup-schema/update-schema succeed.
+schema:
+  useHelmHooks: false
