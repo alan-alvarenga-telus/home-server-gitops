@@ -52,6 +52,13 @@ spec:
         connectionLimit: -1      # CNPG default; same reason
         passwordSecret:
           name: postgres-claro-ai-crm
+      - name: n8n
+        ensure: present
+        login: true
+        inherit: true            # CNPG default; declared explicitly to avoid ArgoCD drift detection
+        connectionLimit: -1      # CNPG default; same reason
+        passwordSecret:
+          name: postgres-n8n
 
   monitoring:
     enablePodMonitor: false # set true when you add Prometheus later

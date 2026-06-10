@@ -11,6 +11,7 @@ spec:
   sourceRepos:
     - https://github.com/alan-alvarenga-telus/home-server-gitops.git
     - https://charts.goauthentik.io
+    - https://community-charts.github.io/helm-charts
 
   destinations:
     - server: https://kubernetes.default.svc
