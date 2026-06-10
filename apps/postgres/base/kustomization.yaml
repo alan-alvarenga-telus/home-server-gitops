@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - cluster.yaml
   - databases/claro-ai-crm.yaml
+  - databases/n8n.yaml

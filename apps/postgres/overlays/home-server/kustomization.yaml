@@ -6,4 +6,5 @@ resources:
   - postgres-authentik.sealedsecret.yaml
   - postgres-superuser.sealedsecret.yaml
   - postgres-claro-ai-crm.sealedsecret.yaml
+  - postgres-n8n.sealedsecret.yaml
   - postgres-rw-external.yaml
