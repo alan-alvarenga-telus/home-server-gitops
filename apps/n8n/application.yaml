@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: n8n
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Wave 2: n8n consumes the Postgres database provisioned by apps/postgres
+    # (wave 1). Waves order Applications within the apps tree; they do NOT order
+    # against infrastructure/ (that's why SkipDryRunOnMissingResource is also set).
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: apps
+  sources:
+    - chart: n8n
+      repoURL: https://community-charts.github.io/helm-charts
+      targetRevision: "*"
+      helm:
+        releaseName: n8n
+        valueFiles:
+          - $values/apps/n8n/overlays/home-server/values.yaml
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      ref: values
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      path: apps/n8n/overlays/home-server
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: n8n
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
