@@ -6,6 +6,16 @@
 
 gitlabUrl: http://gitlab.internal/
 
+# The chart only mounts a token secret into the pod if one of
+# runnerRegistrationToken / runnerToken / runners.secret is explicitly set -
+# the "# secret: gitlab-runner" line in the chart's own values.yaml is a
+# comment/example, not an actual default. Names the existing
+# gitlab-runner Secret (sealed as apps/gitlab-runner/overlays/home-server/
+# gitlab-runner.sealedsecret.yaml) containing runner-token (glrt-...) and an
+# empty runner-registration-token.
+runners:
+  secret: gitlab-runner
+
 rbac:
   # Runner's kubernetes executor needs to create/manage job pods itself.
   # clusterWideAccess stays false: rules below are scoped to a Role in the
