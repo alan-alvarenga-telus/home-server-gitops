@@ -43,6 +43,15 @@ spec:
                 registry['enable'] = false
                 gitlab_rails['smtp_enable'] = false
                 prometheus_monitoring['enable'] = false
+                # Default monitoring_whitelist is 127.0.0.0/8 only. Rails'
+                # HealthCheck middleware 404s /-/readiness and /-/liveness for
+                # any caller outside it - and kubelet's probes hit the
+                # container over the pod network (its own Pod IP), never
+                # loopback, so they were unconditionally rejected. This was
+                # the actual cause of the crashloop, not boot time or probe
+                # timeouts. Scoped to this node's pod CIDR rather than
+                # opening it to 0.0.0.0/0.
+                gitlab_rails['monitoring_whitelist'] = ['127.0.0.0/8', '::1/128', '10.42.0.0/24']
             # Omnibus reads this on first reconfigure only, to set the root
             # user's password instead of generating a random one that expires
             # in 24h. Sealed in the overlay (cluster-specific, like every
