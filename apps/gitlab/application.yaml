@@ -24,3 +24,13 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+  # Kubernetes stamps a status.phase onto every StatefulSet
+  # volumeClaimTemplates entry in the live object, even though a template has
+  # no business carrying status. Git never sets it (there's nothing to set),
+  # so without this it's permanent, un-fixable drift - not a real config
+  # mismatch.
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - '.spec.volumeClaimTemplates[]?.status'
