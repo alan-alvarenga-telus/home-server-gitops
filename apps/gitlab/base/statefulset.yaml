@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitlab
+  namespace: gitlab
+  labels:
+    app: gitlab
+spec:
+  # StatefulSet, not Deployment: this is a singleton stateful workload on
+  # local-path (RWO-only) storage, same reasoning as CNPG's Cluster in
+  # apps/postgres. volumeClaimTemplates gives each of the three omnibus data
+  # dirs its own PVC lifecycle instead of one PVC juggled by a Deployment.
+  serviceName: gitlab
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: gitlab
+          image: gitlab/gitlab-ce:17.5.2-ce.0
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            # Omnibus's single entrypoint for reconfiguring gitlab.rb at
+            # container start. registry/prometheus/grafana are bundled
+            # services we don't want here: the registry would duplicate
+            # infrastructure/registry (already running at registry.internal),
+            # and the monitoring stack costs RAM we don't have to spare on a
+            # single node.
+            - name: GITLAB_OMNIBUS_CONFIG
+              value: |
+                external_url 'http://gitlab.internal'
+                registry['enable'] = false
+                gitlab_rails['smtp_enable'] = false
+                prometheus_monitoring['enable'] = false
+                grafana['enable'] = false
+            # Omnibus reads this on first reconfigure only, to set the root
+            # user's password instead of generating a random one that expires
+            # in 24h. Sealed in the overlay (cluster-specific, like every
+            # other secret in this repo).
+            - name: GITLAB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gitlab-root-password
+                  key: password
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gitlab
+            - name: logs
+              mountPath: /var/log/gitlab
+            - name: data
+              mountPath: /var/opt/gitlab
+          resources:
+            requests:
+              memory: 4Gi
+              cpu: "2"
+            limits:
+              memory: 6Gi
+              cpu: "4"
+          # Omnibus can take several minutes to reconfigure on first boot -
+          # generous initialDelaySeconds avoids a crashloop before it's ready.
+          readinessProbe:
+            httpGet:
+              path: /-/readiness
+              port: http
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /-/liveness
+              port: http
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            failureThreshold: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: config
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: logs
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 4Gi
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 20Gi

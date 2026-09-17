@@ -1,0 +1,26 @@
+# apps/gitlab/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: apps
+  source:
+    repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+    targetRevision: HEAD
+    path: apps/gitlab/overlays/home-server
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
