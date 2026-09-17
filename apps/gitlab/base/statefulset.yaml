@@ -66,20 +66,31 @@ spec:
             limits:
               memory: 6Gi
               cpu: "4"
-          # Omnibus can take several minutes to reconfigure on first boot -
-          # generous initialDelaySeconds avoids a crashloop before it's ready.
+          # startupProbe gates readiness/liveness until it succeeds once -
+          # while it's running, a failing readiness/liveness check does NOT
+          # restart the container. Needed here: omnibus's first reconfigure
+          # brings up gitaly/postgres/redis before workhorse+nginx, and
+          # workhorse 404s on /-/readiness until Puma registers behind it -
+          # a plain initialDelaySeconds long enough to cover that got beaten
+          # by liveness killing the container mid-boot and resetting the
+          # whole multi-minute startup clock every time. Budget here: up to
+          # 20 * 30s = 10 minutes before we consider first boot itself hung.
+          startupProbe:
+            httpGet:
+              path: /-/readiness
+              port: http
+            periodSeconds: 30
+            failureThreshold: 20
           readinessProbe:
             httpGet:
               path: /-/readiness
               port: http
-            initialDelaySeconds: 180
-            periodSeconds: 30
-            failureThreshold: 10
+            periodSeconds: 10
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /-/liveness
               port: http
-            initialDelaySeconds: 300
             periodSeconds: 30
             failureThreshold: 5
   volumeClaimTemplates:
