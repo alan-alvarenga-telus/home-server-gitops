@@ -1,0 +1,44 @@
+# Helm values for the official gitlab-runner chart on the home-server cluster.
+# Consumed via the $values ref by apps/gitlab-runner/application.yaml.
+# Sanity-checked against chart v0.93.0's values.yaml (no local `helm show
+# values` available on this box - pulled from
+# https://gitlab.com/gitlab-org/charts/gitlab-runner/-/raw/v0.93.0/values.yaml).
+
+gitlabUrl: http://gitlab.internal/
+
+rbac:
+  # Runner's kubernetes executor needs to create/manage job pods itself.
+  # clusterWideAccess stays false: rules below are scoped to a Role in the
+  # gitlab-runner namespace only, not a ClusterRole - the apps AppProject
+  # forbids cluster-scoped RBAC.
+  create: true
+  clusterWideAccess: false
+  rules:
+    - resources: ["events"]
+      verbs: ["list", "watch"]
+    - resources: ["pods"]
+      verbs: ["create", "delete", "get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["pods/attach", "pods/exec"]
+      verbs: ["get", "create", "patch", "delete"]
+    - apiGroups: [""]
+      resources: ["pods/log"]
+      verbs: ["get", "list"]
+    - resources: ["secrets"]
+      verbs: ["create", "delete", "get", "update"]
+    - resources: ["serviceaccounts"]
+      verbs: ["get"]
+    - resources: ["services"]
+      verbs: ["create", "get"]
+
+# runners.config left at chart default: kubernetes executor, job pods land in
+# this same namespace (Release.Namespace), default job image "alpine". Each
+# .gitlab-ci.yml overrides the image per-job anyway.
+
+resources:
+  requests:
+    memory: 128Mi
+    cpu: 100m
+  limits:
+    memory: 256Mi
+    cpu: 500m

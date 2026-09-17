@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitlab-runner
+  annotations:
+    # This app ships namespaced RBAC (Role/RoleBinding for the kubernetes
+    # executor). Wave -1 dodges ArgoCD's rbacReconcile-before-CreateNamespace
+    # race, same as authentik's namespace.
+    argocd.argoproj.io/sync-wave: "-1"
