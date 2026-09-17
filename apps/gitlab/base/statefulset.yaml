@@ -29,18 +29,20 @@ spec:
               containerPort: 80
           env:
             # Omnibus's single entrypoint for reconfiguring gitlab.rb at
-            # container start. registry/prometheus/grafana are bundled
-            # services we don't want here: the registry would duplicate
+            # container start. registry/prometheus are bundled services we
+            # don't want here: the registry would duplicate
             # infrastructure/registry (already running at registry.internal),
             # and the monitoring stack costs RAM we don't have to spare on a
-            # single node.
+            # single node. (grafana['enable'] is NOT set here - GitLab removed
+            # bundled Grafana entirely in 16.3; the key no longer exists and
+            # setting it crashes the reconfigure with
+            # Mixlib::Config::UnknownConfigOptionError.)
             - name: GITLAB_OMNIBUS_CONFIG
               value: |
                 external_url 'http://gitlab.internal'
                 registry['enable'] = false
                 gitlab_rails['smtp_enable'] = false
                 prometheus_monitoring['enable'] = false
-                grafana['enable'] = false
             # Omnibus reads this on first reconfigure only, to set the root
             # user's password instead of generating a random one that expires
             # in 24h. Sealed in the overlay (cluster-specific, like every
