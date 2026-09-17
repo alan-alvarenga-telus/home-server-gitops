@@ -23,7 +23,14 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true
+  # No ServerSideApply here (unlike postgres/authentik): this app has no
+  # CRDs and nothing large enough to need it. It was also actively
+  # counterproductive - ArgoCD's serverSideDiff mode (paired with
+  # ServerSideApply) does not honor ignoreDifferences below for a field
+  # nested inside spec.volumeClaimTemplates, keeping this Application stuck
+  # OutOfSync forever even though the live StatefulSet exactly matched git.
+  # Plain client-side diffing does honor it correctly.
+  #
   # Kubernetes stamps a status.phase onto every StatefulSet
   # volumeClaimTemplates entry in the live object, even though a template has
   # no business carrying status. Git never sets it (there's nothing to set),
