@@ -1,0 +1,42 @@
+# apps/gitlab-runner/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitlab-runner
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Wave 2: needs gitlab (wave 1) reachable before it can register/pick up
+    # jobs. Waves only order within the apps/ tree, which is fine here since
+    # both live there.
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: apps
+  sources:
+    - chart: gitlab-runner
+      repoURL: https://charts.gitlab.io
+      # Pinned, not "*": this chart tracks GitLab's own fast release cadence
+      # and we'd rather bump deliberately than silently pick up a new default
+      # runner config on every sync.
+      targetRevision: 0.93.0
+      helm:
+        releaseName: gitlab-runner
+        valueFiles:
+          - $values/apps/gitlab-runner/overlays/home-server/values.yaml
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      ref: values
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      path: apps/gitlab-runner/overlays/home-server
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitlab-runner
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
