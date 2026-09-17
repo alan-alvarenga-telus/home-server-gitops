@@ -3,6 +3,4 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
-  # gitlab-runner-token.sealedsecret.yaml added once GitLab is up and a
-  # runner is created in Admin Area > CI/CD > Runners (need the glrt- token,
-  # can't exist before GitLab does).
+  - gitlab-runner.sealedsecret.yaml
