@@ -27,6 +27,8 @@ spec:
           ports:
             - name: http
               containerPort: 80
+            - name: ssh
+              containerPort: 22
           env:
             # Omnibus's single entrypoint for reconfiguring gitlab.rb at
             # container start. registry/prometheus are bundled services we
@@ -40,6 +42,12 @@ spec:
             - name: GITLAB_OMNIBUS_CONFIG
               value: |
                 external_url 'http://gitlab.internal'
+                # sshd inside the container still listens on 22 - this only
+                # tells GitLab's UI (clone button, etc.) to advertise 2222,
+                # which is what the external Service actually maps to. The
+                # node's own host sshd already owns port 22 on the LAN IP, so
+                # GitLab's SSH can't reuse it the way postgres reuses 5432.
+                gitlab_rails['gitlab_shell_ssh_port'] = 2222
                 registry['enable'] = false
                 gitlab_rails['smtp_enable'] = false
                 prometheus_monitoring['enable'] = false
