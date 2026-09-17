@@ -1,0 +1,19 @@
+# LoadBalancer Service exposing GitLab's bundled sshd on 2222, not 22 -
+# the node's own host sshd already owns 22 on the LAN IP, so this can't
+# reuse the postgres-rw-external pattern of matching the container's own
+# port. klipper-lb assigns the same node IP as everything else, just on
+# 2222 instead. Clone with: git clone ssh://git@gitlab.internal:2222/<path>
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab-ssh-external
+  namespace: gitlab
+spec:
+  type: LoadBalancer
+  selector:
+    app: gitlab
+  ports:
+    - name: ssh
+      port: 2222
+      targetPort: ssh
+      protocol: TCP
