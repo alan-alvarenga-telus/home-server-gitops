@@ -75,23 +75,34 @@ spec:
           # by liveness killing the container mid-boot and resetting the
           # whole multi-minute startup clock every time. Budget here: up to
           # 20 * 30s = 10 minutes before we consider first boot itself hung.
+          # timeoutSeconds defaults to 1 if unset - too tight for this stack.
+          # cgroup cpu.stat on this box already shows real throttling
+          # (nr_throttled > 0) under a 2-4 vCPU limit, and GitLab's own Puma/
+          # Workhorse can take several seconds to answer under any transient
+          # load (a Sidekiq cron tick, asset serving). Without a longer
+          # timeout, an otherwise-healthy pod gets killed on a slow response
+          # rather than a real failure - this, not boot time, was the actual
+          # cause of the repeated crashloop.
           startupProbe:
             httpGet:
               path: /-/readiness
               port: http
             periodSeconds: 30
+            timeoutSeconds: 10
             failureThreshold: 20
           readinessProbe:
             httpGet:
               path: /-/readiness
               port: http
             periodSeconds: 10
+            timeoutSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /-/liveness
               port: http
             periodSeconds: 30
+            timeoutSeconds: 10
             failureThreshold: 5
   volumeClaimTemplates:
     - metadata:
