@@ -78,10 +78,10 @@ spec:
               mountPath: /var/opt/gitlab
           resources:
             requests:
-              memory: 4Gi
+              memory: 5Gi
               cpu: "2"
             limits:
-              memory: 6Gi
+              memory: 8Gi
               cpu: "4"
           # startupProbe gates readiness/liveness until it succeeds once -
           # while it's running, a failing readiness/liveness check does NOT
