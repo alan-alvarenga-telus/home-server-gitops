@@ -1,0 +1,103 @@
+# victoria-metrics-k8s-stack v0.95.0 values for the single-node k3s cluster.
+# Only overrides live here; everything else is the chart default.
+
+# --- Operator ---------------------------------------------------------------
+victoria-metrics-operator:
+  # The chart's pre-delete Helm hook runs `kubectl delete` on every VM* CR type.
+  # ArgoCD already prunes those CRs itself, and its handling of pre-delete hooks
+  # varies by version, so don't rely on it.
+  crds:
+    cleanup:
+      enabled: false
+  # The webhook's TLS cert is generated at template time (genCA), so it changes
+  # on every ArgoCD render and the app would never settle into Synced. There is
+  # no cert-manager here. The operator still validates CRs on reconcile.
+  admissionWebhooks:
+    enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+# --- Storage: VictoriaMetrics single-node -----------------------------------
+vmsingle:
+  spec:
+    retentionPeriod: 30d
+    storage:
+      resources:
+        requests:
+          storage: 5Gi
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { memory: 1Gi }
+
+# --- Scraper + rules --------------------------------------------------------
+vmagent:
+  spec:
+    scrapeInterval: 30s
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { memory: 512Mi }
+
+vmalert:
+  spec:
+    resources:
+      requests: { cpu: 20m, memory: 64Mi }
+      limits: { memory: 128Mi }
+
+# vmalert requires a notifier, so Alertmanager stays on. The chart's default
+# config routes everything to a "blackhole" receiver: alerts are evaluated and
+# visible in the UI but not delivered. Add a real receiver (ntfy/email) later.
+alertmanager:
+  spec:
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { memory: 128Mi }
+
+# --- Grafana ----------------------------------------------------------------
+grafana:
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  # RWO volume on a single node: never run old and new pod side by side.
+  deploymentStrategy:
+    type: Recreate
+  persistence:
+    enabled: true
+    size: 1Gi
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+  grafana.ini:
+    server:
+      domain: grafana.internal
+      root_url: http://grafana.internal
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grafana.internal
+
+# --- Exporters --------------------------------------------------------------
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 64Mi }
+
+kube-state-metrics:
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+# --- k3s: control plane runs inside one process -----------------------------
+# On k3s the controller-manager, scheduler and etcd are not separate pods with
+# scrapeable endpoints, so the chart's default scrapes fail and fire permanent
+# TargetDown/*Down alerts. Turn them off.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
