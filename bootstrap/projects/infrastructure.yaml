@@ -12,6 +12,7 @@ spec:
     - https://github.com/alan-alvarenga-telus/home-server-gitops.git
     - https://cloudnative-pg.github.io/charts
     - https://bitnami-labs.github.io/sealed-secrets
+    - https://victoriametrics.github.io/helm-charts
 
   destinations:
     - server: https://kubernetes.default.svc
