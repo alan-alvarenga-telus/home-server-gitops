@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: victoria-metrics
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: infrastructure
+  sources:
+    - repoURL: https://victoriametrics.github.io/helm-charts
+      chart: victoria-metrics-k8s-stack
+      # Pinned: this chart ships an operator + CRDs, so a floating "*" could
+      # upgrade them unattended. Bump deliberately.
+      targetRevision: 0.95.0
+      helm:
+        valueFiles:
+          - $values/infrastructure/victoria-metrics/overlays/home-server/values.yaml
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      ref: values
+    - repoURL: https://github.com/alan-alvarenga-telus/home-server-gitops.git
+      targetRevision: HEAD
+      path: infrastructure/victoria-metrics/overlays/home-server
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # CRDs from the operator exceed the client-side apply annotation limit.
+      - ServerSideApply=true
+      # VM* custom resources are rendered in the same sync as their CRDs.
+      - SkipDryRunOnMissingResource=true
